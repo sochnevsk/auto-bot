@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -32,6 +32,7 @@ class State(Enum):
     EDIT_MEDIA_ADD_WAIT = auto()
     EDIT_MEDIA_ADD_CONFIRM = auto()
     EDIT_MEDIA_REMOVE_WAIT = auto()
+    EDIT_MEDIA_REMOVE_CONFIRM = auto()
     CONFIRM_DELETE = auto()
     QUICK_DELETE = auto()
 
@@ -41,8 +42,10 @@ class PostContext:
     chat_id: int
     message_id: int
     state: State
+    user_id: Optional[int] = None
     temp_text: Optional[str] = None
     temp_media: Optional[List[str]] = None
+    media_to_remove: Optional[List[int]] = None
 
 def get_post_keyboard(post_id: str) -> InlineKeyboardMarkup:
     """Клавиатура под постом (две кнопки верхнего уровня)"""
@@ -110,22 +113,34 @@ class PostHandler:
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await query.answer()
-        
-        data = query.data.split('_')
-        action = data[0]
-        post_id = data[1]
-        
+
+        data = query.data
+        if data.startswith("confirm_") or data.startswith("cancel_"):
+            # Корректно извлекаем post_id
+            if "_post_" in data:
+                post_id = "post_" + data.split("_post_")[-1]
+            else:
+                post_id = data.split("_")[-1]
+            if data.startswith("confirm_"):
+                await self._handle_confirm(query, self.posts[post_id], context)
+            else:
+                await self._handle_cancel(query, self.posts[post_id])
+            return
+        if "_post_" in data:
+            action, post_id = data.rsplit("_post_", 1)
+            post_id = f"post_{post_id}"
+            action = action.rstrip("_")
+        else:
+            parts = data.split("_")
+            action = "_".join(parts[:-1])
+            post_id = parts[-1]
+
         if post_id not in self.posts:
-            self.posts[post_id] = PostContext(
-                post_id=post_id,
-                chat_id=query.message.chat_id,
-                message_id=query.message.message_id,
-                state=State.POST_VIEW
-            )
-        
+            logging.warning(f"Post {post_id} not found")
+            return
+
         post_context = self.posts[post_id]
         
-        # Обработка действий в зависимости от состояния
         if action == "moderate":
             await self._show_moderate_menu(query, post_context)
         elif action == "quick_delete":
@@ -138,65 +153,70 @@ class PostHandler:
             await self._show_text_edit(query, post_context)
         elif action == "edit_media":
             await self._show_media_edit(query, post_context)
-        elif action == "confirm":
-            await self._handle_confirm(query, post_context, context)
-        elif action == "cancel":
-            await self._handle_cancel(query, post_context)
+        elif action == "add_media":
+            await self._show_add_media(query, post_context)
+        elif action == "remove_media":
+            await self._show_remove_media(query, post_context)
 
     async def _show_moderate_menu(self, query: CallbackQuery, post_context: PostContext):
         """Показать меню модерации"""
+        post_context.state = State.MODERATE_MENU
         keyboard = get_moderate_keyboard(post_context.post_id)
         await query.message.edit_reply_markup(reply_markup=keyboard)
-        post_context.state = State.MODERATE_MENU
 
     async def _show_quick_delete_confirm(self, query: CallbackQuery, post_context: PostContext):
         """Показать подтверждение быстрого удаления"""
+        post_context.state = State.QUICK_DELETE
         keyboard = get_confirm_keyboard("quick_delete", post_context.post_id)
         await query.message.edit_reply_markup(reply_markup=keyboard)
-        post_context.state = State.QUICK_DELETE
 
     async def _show_publish_confirm(self, query: CallbackQuery, post_context: PostContext):
         """Показать подтверждение публикации"""
+        post_context.state = State.CONFIRM_PUBLISH
         keyboard = get_confirm_keyboard("publish", post_context.post_id)
         await query.message.edit_reply_markup(reply_markup=keyboard)
-        post_context.state = State.CONFIRM_PUBLISH
 
     async def _show_edit_menu(self, query: CallbackQuery, post_context: PostContext):
         """Показать меню редактирования"""
+        post_context.state = State.EDIT_MENU
         keyboard = get_edit_keyboard(post_context.post_id)
         await query.message.edit_reply_markup(reply_markup=keyboard)
-        post_context.state = State.EDIT_MENU
 
     async def _show_text_edit(self, query: CallbackQuery, post_context: PostContext):
         """Показать меню редактирования текста"""
-        await query.message.reply_text("Отправьте новый текст")
         post_context.state = State.EDIT_TEXT_WAIT
+        await query.message.reply_text("Отправьте новый текст")
 
     async def _show_media_edit(self, query: CallbackQuery, post_context: PostContext):
         """Показать меню редактирования медиа"""
+        post_context.state = State.EDIT_MEDIA_MENU
         keyboard = get_media_edit_keyboard(post_context.post_id)
         await query.message.edit_reply_markup(reply_markup=keyboard)
-        post_context.state = State.EDIT_MEDIA_MENU
+
+    async def _show_add_media(self, query: CallbackQuery, post_context: PostContext):
+        """Показать меню добавления медиа"""
+        post_context.state = State.EDIT_MEDIA_ADD_WAIT
+        await query.message.reply_text("Отправьте новые фотографии")
+
+    async def _show_remove_media(self, query: CallbackQuery, post_context: PostContext):
+        """Показать меню удаления медиа"""
+        post_context.state = State.EDIT_MEDIA_REMOVE_WAIT
+        await query.message.reply_text("Отправьте номера фотографий для удаления через запятую")
 
     async def _handle_confirm(self, query: CallbackQuery, post_context: PostContext, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка подтверждения действия"""
-        action = query.data.split('_')[1]
+        action = query.data[len("confirm_"):].rsplit("_post_", 1)[0]
         
         if action == "publish":
-            # Публикуем пост
             await query.message.edit_reply_markup(reply_markup=None)
             moderator_name = query.from_user.full_name
             await query.message.reply_text(f"Пост опубликован модератором {moderator_name}")
             del self.posts[post_context.post_id]
-            
+            return
         elif action in ["delete", "quick_delete"]:
-            # Удаляем пост и все связанные сообщения
             await context.bot.delete_message(
                 chat_id=post_context.chat_id,
                 message_id=post_context.message_id
             )
-            
-            # Удаляем все фото
             if post_context.temp_media:
                 for media_id in post_context.temp_media:
                     try:
@@ -206,29 +226,87 @@ class PostHandler:
                         )
                     except Exception as e:
                         logging.error(f"Error deleting media {media_id}: {e}")
-            
             del self.posts[post_context.post_id]
+            return
+        if action == "edit_text":
+            await query.message.edit_reply_markup(reply_markup=None)
+            await query.message.edit_text(post_context.temp_text)
+            await query.message.reply_text("Текст обновлен")
+            post_context.state = State.POST_VIEW
+            return
+        elif action == "add_media":
+            await query.message.edit_reply_markup(reply_markup=None)
+            await query.message.reply_text(f"Добавлено {len(post_context.temp_media or [])} фотографий")
+            post_context.state = State.POST_VIEW
+            return
+        elif action == "remove_media":
+            if post_context.media_to_remove and post_context.temp_media:
+                for idx in sorted(post_context.media_to_remove, reverse=True):
+                    if 0 <= idx - 1 < len(post_context.temp_media):
+                        del post_context.temp_media[idx - 1]
+                await query.message.edit_reply_markup(reply_markup=None)
+                await query.message.reply_text(f"Удалено {len(post_context.media_to_remove)} фотографий")
+            post_context.state = State.POST_VIEW
+            return
+        elif action == "edit_text_confirm":
+            await self._show_edit_menu(query, post_context)
+        elif action == "edit_media_add_confirm":
+            await self._show_media_edit(query, post_context)
+        elif action == "edit_media_remove_confirm":
+            await self._show_media_edit(query, post_context)
+        else:
+            # Для всех остальных состояний возвращаемся в меню модерации
+            await self._show_moderate_menu(query, post_context)
 
     async def _handle_cancel(self, query: CallbackQuery, post_context: PostContext):
-        """Обработка отмены действия"""
-        if post_context.state == State.CONFIRM_PUBLISH:
-            await self._show_moderate_menu(query, post_context)
-        elif post_context.state == State.QUICK_DELETE:
+        action = query.data[len("cancel_"):].rsplit("_post_", 1)[0]
+        if action == "edit_text":
+            post_context.temp_text = None  # Сбросить временный текст при отмене
+            post_context.state = State.EDIT_MENU
+            return
+        elif action in ["add_media", "remove_media"]:
+            post_context.state = State.EDIT_MEDIA_MENU
+            return
+        elif action == "publish":
+            post_context.state = State.POST_VIEW
+            return
+        elif action == "quick_delete":
             keyboard = get_post_keyboard(post_context.post_id)
             await query.message.edit_reply_markup(reply_markup=keyboard)
             post_context.state = State.POST_VIEW
+            return
+        elif action == "edit_text_confirm":
+            await self._show_edit_menu(query, post_context)
+        elif action == "edit_media_add_confirm":
+            await self._show_media_edit(query, post_context)
+        elif action == "edit_media_remove_confirm":
+            await self._show_media_edit(query, post_context)
+        else:
+            # Для всех остальных состояний возвращаемся в меню модерации
+            await self._show_moderate_menu(query, post_context)
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка текстовых сообщений"""
         message = update.message
         
-        # Находим пост в состоянии ожидания текста
+        # Находим пост в состоянии ожидания текста или медиа
         post_context = next(
-            (p for p in self.posts.values() if p.state == State.EDIT_TEXT_WAIT),
+            (p for p in self.posts.values() 
+             if p.state in [State.EDIT_TEXT_WAIT, State.EDIT_MEDIA_ADD_WAIT, State.EDIT_MEDIA_REMOVE_WAIT]),
             None
         )
         
-        if post_context:
+        if not post_context:
+            return
+            
+        # Проверяем, что сообщение от того же пользователя
+        if message.from_user.id != post_context.user_id:
+            await message.reply_text(
+                "Пожалуйста, отправляйте сообщения только вы, как модератор"
+            )
+            return
+            
+        if post_context.state == State.EDIT_TEXT_WAIT:
             post_context.temp_text = message.text
             keyboard = get_confirm_keyboard("edit_text", post_context.post_id)
             await message.reply_text(
@@ -236,17 +314,80 @@ class PostHandler:
                 reply_markup=keyboard
             )
             post_context.state = State.EDIT_TEXT_CONFIRM
-            return
+            
+        elif post_context.state == State.EDIT_MEDIA_ADD_WAIT:
+            if message.photo:
+                # Сохраняем новые фото
+                new_photos = []
+                for photo in message.photo:
+                    try:
+                        file = await photo.get_file()
+                        path = f"saved/{post_context.post_id}/photo_{len(post_context.temp_media or []) + len(new_photos) + 1}.jpg"
+                        await file.download_to_drive(path)
+                        new_photos.append(path)
+                        logging.info(f"Saved photo to {path}")
+                    except Exception as e:
+                        logging.error(f"Error saving photo: {e}")
+                        await message.reply_text(
+                            "Произошла ошибка при сохранении фотографии"
+                        )
+                        return
+                
+                if not new_photos:
+                    await message.reply_text(
+                        "Не удалось сохранить ни одной фотографии"
+                    )
+                    return
+                    
+                # Обновляем список медиа
+                if post_context.temp_media is None:
+                    post_context.temp_media = []
+                post_context.temp_media.extend(new_photos)
+                
+                # Показываем подтверждение
+                keyboard = get_confirm_keyboard("add_media", post_context.post_id)
+                await message.reply_text(
+                    f"Добавлено {len(new_photos)} фотографий. Сохранить изменения?",
+                    reply_markup=keyboard
+                )
+                post_context.state = State.EDIT_MEDIA_ADD_CONFIRM
+                
+        elif post_context.state == State.EDIT_MEDIA_REMOVE_WAIT:
+            try:
+                # Парсим номера фотографий
+                numbers = [int(n.strip()) for n in message.text.split(',')]
+                # Проверяем, что номера в допустимом диапазоне
+                if all(1 <= n <= len(post_context.temp_media or []) for n in numbers):
+                    post_context.media_to_remove = numbers
+                    keyboard = get_confirm_keyboard("remove_media", post_context.post_id)
+                    await message.reply_text(
+                        f"Удалить фотографии {', '.join(map(str, numbers))}?",
+                        reply_markup=keyboard
+                    )
+                    post_context.state = State.EDIT_MEDIA_REMOVE_CONFIRM
+                else:
+                    await message.reply_text(
+                        f"Номера должны быть от 1 до {len(post_context.temp_media or [])}"
+                    )
+            except ValueError:
+                await message.reply_text(
+                    "Пожалуйста, введите номера фотографий через запятую (например: 1, 2, 3)"
+                )
 
 def setup_handlers(application: Application):
     post_handler = PostHandler()
     
     application.add_handler(CallbackQueryHandler(
         post_handler.handle_callback,
-        pattern=r"^(moderate|quick_delete|publish|edit|delete|confirm|cancel)_"
+        pattern=r"^(moderate|quick_delete|publish|edit|delete|confirm|cancel|add_media|remove_media)_"
     ))
     
     application.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
+        post_handler.handle_message
+    ))
+    
+    application.add_handler(MessageHandler(
+        filters.PHOTO,
         post_handler.handle_message
     )) 

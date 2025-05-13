@@ -4,6 +4,7 @@
 from enum import Enum, auto
 from dataclasses import dataclass
 from typing import List, Optional
+import logging
 
 
 class BotState:
@@ -24,6 +25,7 @@ class BotState:
     CONFIRM_DELETE = 'confirm_delete'  # Подтверждение удаления
     CONFIRM_PUBLISH = 'confirm_publish'  # Подтверждение публикации
     QUICK_DELETE = 'quick_delete'  # Быстрое удаление
+    IDLE = 'idle'
 
     @classmethod
     def is_valid(cls, state: str) -> bool:
@@ -55,6 +57,7 @@ class PostContext:
     chat_id: int
     message_id: int
     state: BotState
+    user_id: int  # ID модератора, инициировавшего операцию
     original_text: Optional[str] = None
     original_media: Optional[List[int]] = None
     temp_text: Optional[str] = None
@@ -75,12 +78,19 @@ class StateManager:
     
     def set_post_context(self, post_id: str, context: PostContext) -> None:
         """Установить контекст поста."""
+        logger = logging.getLogger("src.bot.bot")
+        logger.info(f"[StateManager] set_post_context: {post_id} -> {context.state}, до: {list(self._posts.keys())}")
         self._posts[post_id] = context
+        logger.info(f"[StateManager] set_post_context: {post_id} -> {context.state}, после: {list(self._posts.keys())}")
     
     def clear_post_context(self, post_id: str) -> None:
         """Очистить контекст поста."""
+        logger = logging.getLogger("src.bot.bot")
+        logger.info(f"[StateManager] clear_post_context: {post_id}, до: {list(self._posts.keys())}")
         if post_id in self._posts:
+            logger.info(f"[StateManager] clear_post_context: удаляю {post_id}")
             del self._posts[post_id]
+        logger.info(f"[StateManager] clear_post_context: {post_id}, после: {list(self._posts.keys())}")
 
 
 """
