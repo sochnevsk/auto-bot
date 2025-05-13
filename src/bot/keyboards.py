@@ -2,69 +2,101 @@
 Модуль с клавиатурами для бота.
 """
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+from typing import List, Dict, Optional
 
 
 def get_post_keyboard(post_id: str) -> InlineKeyboardMarkup:
-    """
-    Создает клавиатуру для поста.
+    """Клавиатура под постом (две кнопки верхнего уровня)"""
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Модерировать", callback_data=f"moderate_{post_id}"),
+            InlineKeyboardButton("❌ Удалить", callback_data=f"delete_{post_id}")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-    Args:
-        post_id: ID поста
 
-    Returns:
-        InlineKeyboardMarkup: Клавиатура с кнопками
-    """
+def get_moderate_keyboard(post_id: str) -> InlineKeyboardMarkup:
+    """Клавиатура меню модерации"""
     keyboard = [
         [
             InlineKeyboardButton("✅ Опубликовать", callback_data=f"publish_{post_id}"),
             InlineKeyboardButton("✏️ Редактировать", callback_data=f"edit_{post_id}")
         ],
         [
-            InlineKeyboardButton("🗑 Удалить", callback_data=f"delete_{post_id}")
+            InlineKeyboardButton("❌ Удалить", callback_data=f"delete_{post_id}")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_confirm_keyboard(post_id: str) -> InlineKeyboardMarkup:
-    """
-    Создает клавиатуру подтверждения удаления.
-
-    Args:
-        post_id: ID поста
-
-    Returns:
-        InlineKeyboardMarkup: Клавиатура с кнопками подтверждения
-    """
+def get_edit_keyboard(post_id: str) -> InlineKeyboardMarkup:
+    """Клавиатура меню редактирования"""
     keyboard = [
         [
-            InlineKeyboardButton("✅ Да, удалить", callback_data=f"confirm_{post_id}"),
-            InlineKeyboardButton("❌ Нет, отмена", callback_data=f"cancel_{post_id}")
+            InlineKeyboardButton("Текст", callback_data=f"edit_text_{post_id}"),
+            InlineKeyboardButton("🖼 Медиа", callback_data=f"edit_media_{post_id}")
+        ],
+        [
+            InlineKeyboardButton("🔙 Назад", callback_data=f"moderate_{post_id}")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_moderation_keyboard(post_id: str) -> InlineKeyboardMarkup:
-    """
-    Создает клавиатуру модерации.
-
-    Args:
-        post_id: ID поста
-
-    Returns:
-        InlineKeyboardMarkup: Клавиатура с кнопками модерации
-    """
+def get_media_edit_keyboard(post_id: str) -> InlineKeyboardMarkup:
+    """Клавиатура редактирования медиа"""
     keyboard = [
         [
-            InlineKeyboardButton("✅ Опубликовать", callback_data=f"publish_{post_id}"),
-            InlineKeyboardButton("✏️ Редактировать", callback_data=f"edit_{post_id}")
+            InlineKeyboardButton("Добавить", callback_data=f"add_media_{post_id}"),
+            InlineKeyboardButton("Удалить", callback_data=f"remove_media_{post_id}")
         ],
         [
-            InlineKeyboardButton("🗑 Удалить", callback_data=f"delete_{post_id}")
-        ],
+            InlineKeyboardButton("🔙 Назад", callback_data=f"edit_{post_id}")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_text_confirm_keyboard(post_id: str) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения изменений текста"""
+    keyboard = [
         [
-            InlineKeyboardButton("⬅️ Назад", callback_data=f"cancel_{post_id}")
+            InlineKeyboardButton("✅ Да", callback_data=f"confirm_text_{post_id}"),
+            InlineKeyboardButton("❌ Нет", callback_data=f"cancel_text_{post_id}")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_media_add_confirm_keyboard(post_id: str) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения добавления медиа"""
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Да", callback_data=f"confirm_add_media_{post_id}"),
+            InlineKeyboardButton("❌ Нет", callback_data=f"cancel_add_media_{post_id}")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_media_remove_confirm_keyboard(post_id: str) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения удаления медиа"""
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Да", callback_data=f"confirm_remove_media_{post_id}"),
+            InlineKeyboardButton("❌ Нет", callback_data=f"cancel_remove_media_{post_id}")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_confirm_keyboard(action: str, post_id: str) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения действия"""
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Да", callback_data=f"confirm_{action}_{post_id}"),
+            InlineKeyboardButton("❌ Нет", callback_data=f"cancel_{action}_{post_id}")
         ]
     ]
     return InlineKeyboardMarkup(keyboard) 

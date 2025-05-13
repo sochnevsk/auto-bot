@@ -7,19 +7,31 @@ import os
 import json
 from datetime import datetime
 from typing import Dict, Any
-from telegram import Update, InputMediaPhoto, InlineKeyboardMarkup
+from telegram import Update, InputMediaPhoto, InlineKeyboardMarkup, CallbackQuery
 from telegram.ext import (
     Application,
     CommandHandler,
     ContextTypes,
-    CallbackQueryHandler
+    CallbackQueryHandler,
+    MessageHandler,
+    filters
 )
 from telegram.error import TimedOut, NetworkError
 
 from src.config.settings import settings
 from src.utils.logger import setup_logger
-from src.bot.keyboards import get_post_keyboard, get_confirm_keyboard, get_moderation_keyboard
+from src.bot.keyboards import (
+    get_post_keyboard,
+    get_confirm_keyboard,
+    get_edit_keyboard,
+    get_media_edit_keyboard,
+    get_text_confirm_keyboard,
+    get_media_add_confirm_keyboard,
+    get_media_remove_confirm_keyboard,
+    get_moderate_keyboard
+)
 from src.bot.storage import AsyncFileManager
+from src.bot.states import BotState, StateManager, PostContext
 
 # Настройка логгера
 logger = setup_logger(__name__)
@@ -38,6 +50,7 @@ class Bot:
         self._setup_handlers()
         self.check_task = None
         self.is_checking = False
+        self.state_manager = StateManager()
         
         # Создаем storage.json если его нет
         if not os.path.exists(STORAGE_PATH):
@@ -60,6 +73,10 @@ class Bot:
         self.application.add_handler(CallbackQueryHandler(self.handle_callback))
         logger.info("Added callback query handler")
         
+        # Обработчик текстовых сообщений
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        logger.info("Added message handler")
+        
         logger.info("Command handlers setup completed")
 
     async def is_post_sent(self, post_id: str) -> bool:
@@ -68,20 +85,8 @@ class Bot:
             data = await storage.read()
             return post_id in data and data[post_id].get("status") == "sent"
 
-    async def process_post(
-            self,
-            post_dir: str,
-            context: ContextTypes.DEFAULT_TYPE) -> bool:
-        """
-        Обработка одного поста.
-
-        Args:
-            post_dir: Путь к директории с постом
-            context: Контекст бота
-
-        Returns:
-            bool: True если пост успешно отправлен, False в случае ошибки
-        """
+    async def process_post(self, post_dir: str, context: ContextTypes.DEFAULT_TYPE) -> bool:
+        """Обработка одного поста."""
         try:
             post_id = os.path.basename(post_dir)
             logger.info(f"Processing post in directory: {post_dir}")
@@ -186,6 +191,22 @@ class Bot:
                 # Сохраняем информацию о посте
                 message_ids = [msg.message_id for msg in messages]
                 message_ids.append(keyboard_message.message_id)
+                
+                logger.info(f"Message IDs from media group: {[msg.message_id for msg in messages]}")
+                logger.info(f"Keyboard message ID: {keyboard_message.message_id}")
+                logger.info(f"All message IDs: {message_ids}")
+
+                # Создаем контекст поста
+                post_context = PostContext(
+                    post_id=post_id,
+                    chat_id=settings.MODERATOR_GROUP_ID,
+                    message_id=messages[0].message_id,
+                    state=BotState.POST_VIEW,
+                    original_text=full_text,
+                    original_media=message_ids[:-1]  # Все ID кроме последнего (клавиатуры)
+                )
+                logger.info(f"Created post context: {post_context}")
+                self.state_manager.set_post_context(post_id, post_context)
 
                 post_info = {
                     "id": post_id,
@@ -224,128 +245,343 @@ class Bot:
             raise
 
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """
-        Обработчик callback-запросов от inline кнопок.
-
-        Args:
-            update: Объект обновления
-            context: Контекст бота
-        """
-        logger.info("Received callback query")
+        """Обработчик callback-запросов."""
         query = update.callback_query
         await query.answer()
-        logger.info(f"Callback query data: {query.data}")
-
-        # Получаем данные из callback
-        data = query.data
-        # Разделяем на action и post_id, учитывая что post_id может содержать пробелы
-        parts = data.split('_', 1)  # Разделяем только по первому '_'
-        if len(parts) != 2:
-            logger.error(f"Invalid callback data format: {data}")
-            return
-            
-        action, post_id = parts
-        logger.info(f"Parsed action: {action}, post_id: {post_id}")
-
-        # Проверяем права пользователя
-        user_id = update.effective_user.id
-        logger.info(f"Checking permissions for user {user_id}")
-        logger.info(f"Available moderator IDs: {settings.moderator_ids}")
-
-        if user_id not in settings.moderator_ids:
-            logger.warning(f"User {user_id} is not a moderator")
-            await query.message.reply_text(
-                "⛔️ У вас нет прав для выполнения этой команды."
-            )
-            return
-
-        logger.info(f"User {user_id} is a moderator, processing action: {action}")
-
-        if action == "delete":
-            # Показываем клавиатуру подтверждения удаления
-            logger.info("Showing delete confirmation keyboard")
-            await query.message.edit_text(
-                text=f"Удалить пост {post_id}?",
-                reply_markup=get_confirm_keyboard(post_id)
-            )
-            logger.info(f"Delete confirmation keyboard shown for post {post_id}")
-
-        elif action == "confirm":
-            # Удаляем пост и убираем кнопки
-            logger.info(f"Confirming deletion of post {post_id}")
-            post_dir = os.path.join("saved", post_id)
+        
+        data = query.data.split('_')
+        # Универсальный парсер для callback_data
+        if data[0] in ["confirm", "cancel"]:
+            action = data[0]
+            subaction = data[1]
+            post_id = '_'.join(data[2:])
+        else:
+            action = data[0]
+            subaction = None
+            post_id = '_'.join(data[1:])
+        
+        # Получаем или создаем контекст поста
+        post_context = self.state_manager.get_post_context(post_id)
+        if not post_context:
+            # Если контекст не найден, пытаемся получить его из storage
             async with AsyncFileManager(STORAGE_PATH) as storage:
-                data = await storage.read()
-                post_info = data.get(post_id, {})
-                message_ids = post_info.get("message_ids", [])
-                chat_id = post_info.get("chat_id")
+                storage_data = await storage.read()
+                if post_id in storage_data:
+                    post_info = storage_data[post_id]
+                    post_context = PostContext(
+                        post_id=post_id,
+                        chat_id=post_info['chat_id'],
+                        message_id=post_info['message_ids'][0],  # ID первого сообщения с фото
+                        state=BotState.POST_VIEW,
+                        original_text=post_info['text'],
+                        original_media=post_info['message_ids'][:-1]  # Все ID кроме последнего (клавиатуры)
+                    )
+                    self.state_manager.set_post_context(post_id, post_context)
+                else:
+                    logger.error(f"Post {post_id} not found in storage")
+                    return
+        
+        # Обработка действий в зависимости от состояния
+        if action == "moderate":
+            await self._show_moderate_menu(query, post_context)
+        elif action == "quick":  # quick_delete
+            await self._show_quick_delete_confirm(query, post_context)
+        elif action == "delete":
+            await self._show_delete_confirm(query, post_context)
+        elif action == "publish":
+            await self._show_publish_confirm(query, post_context)
+        elif action == "edit":
+            await self._show_edit_menu(query, post_context)
+        elif action == "edittext":
+            await self._show_text_edit(query, post_context)
+        elif action == "editmedia":
+            await self._show_media_edit(query, post_context)
+        elif action == "addmedia":
+            await self._show_add_media(query, post_context)
+        elif action == "removemedia":
+            await self._show_remove_media(query, post_context)
+        elif action == "confirm":
+            await self._handle_confirm(query, post_context, context)
+        elif action == "cancel":
+            await self._handle_cancel(query, post_context)
+
+    async def _show_moderate_menu(self, query: CallbackQuery, post_context: PostContext):
+        """Показать меню модерации"""
+        keyboard = get_moderate_keyboard(post_context.post_id)
+        await query.message.edit_reply_markup(reply_markup=keyboard)
+        post_context.state = BotState.MODERATE_MENU
+        self.state_manager.set_post_context(post_context.post_id, post_context)
+
+    async def _show_quick_delete_confirm(self, query: CallbackQuery, post_context: PostContext):
+        """Показать подтверждение быстрого удаления"""
+        keyboard = get_confirm_keyboard("quick_delete", post_context.post_id)
+        await query.message.edit_reply_markup(reply_markup=keyboard)
+        post_context.state = BotState.QUICK_DELETE
+        self.state_manager.set_post_context(post_context.post_id, post_context)
+
+    async def _show_delete_confirm(self, query: CallbackQuery, post_context: PostContext):
+        """Показать подтверждение удаления"""
+        keyboard = get_confirm_keyboard("delete", post_context.post_id)
+        await query.message.edit_reply_markup(reply_markup=keyboard)
+        post_context.state = BotState.CONFIRM_DELETE
+        self.state_manager.set_post_context(post_context.post_id, post_context)
+
+    async def _show_publish_confirm(self, query: CallbackQuery, post_context: PostContext):
+        """Показать подтверждение публикации"""
+        keyboard = get_confirm_keyboard("publish", post_context.post_id)
+        await query.message.edit_reply_markup(reply_markup=keyboard)
+        post_context.state = BotState.CONFIRM_PUBLISH
+        self.state_manager.set_post_context(post_context.post_id, post_context)
+
+    async def _show_edit_menu(self, query: CallbackQuery, post_context: PostContext):
+        """Показать меню редактирования"""
+        keyboard = get_edit_keyboard(post_context.post_id)
+        await query.message.edit_reply_markup(reply_markup=keyboard)
+        post_context.state = BotState.EDIT_MENU
+        self.state_manager.set_post_context(post_context.post_id, post_context)
+
+    async def _show_text_edit(self, query: CallbackQuery, post_context: PostContext):
+        """Показать меню редактирования текста"""
+        await query.message.reply_text("Отправьте новый текст")
+        post_context.state = BotState.EDIT_TEXT_WAIT
+        self.state_manager.set_post_context(post_context.post_id, post_context)
+
+    async def _show_media_edit(self, query: CallbackQuery, post_context: PostContext):
+        """Показать меню редактирования медиа"""
+        keyboard = get_media_edit_keyboard(post_context.post_id)
+        await query.message.edit_reply_markup(reply_markup=keyboard)
+        post_context.state = BotState.EDIT_MEDIA_MENU
+        self.state_manager.set_post_context(post_context.post_id, post_context)
+
+    async def _show_add_media(self, query: CallbackQuery, post_context: PostContext):
+        """Показать меню добавления медиа"""
+        await query.message.reply_text("Отправьте новые фотографии")
+        post_context.state = BotState.EDIT_MEDIA_ADD_WAIT
+        self.state_manager.set_post_context(post_context.post_id, post_context)
+
+    async def _show_remove_media(self, query: CallbackQuery, post_context: PostContext):
+        """Показать меню удаления медиа"""
+        await query.message.reply_text("Отправьте номера фотографий для удаления через запятую")
+        post_context.state = BotState.EDIT_MEDIA_REMOVE_WAIT
+        self.state_manager.set_post_context(post_context.post_id, post_context)
+
+    async def _handle_confirm(self, query: CallbackQuery, post_context: PostContext, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка подтверждения действия"""
+        action = query.data.split('_')[1]
+        
+        if action == "publish":
+            try:
+                # Публикуем пост
+                await query.message.edit_reply_markup(reply_markup=None)
+                moderator_name = query.from_user.full_name
+                await context.bot.send_message(
+                    chat_id=post_context.chat_id,
+                    text=f"Пост опубликован модератором {moderator_name}"
+                )
+                self.state_manager.clear_post_context(post_context.post_id)
+            except Exception as e:
+                logger.error(f"Error publishing post: {e}")
+                await context.bot.send_message(
+                    chat_id=post_context.chat_id,
+                    text="Произошла ошибка при публикации поста"
+                )
+            
+        elif action in ["delete", "quick_delete"]:
+            try:
+                # Сохраняем информацию для сообщения
+                moderator_name = query.from_user.full_name
+                chat_id = post_context.chat_id
                 
-                # Удаляем все сообщения (фото, альбом, служебные, кнопки)
-                if message_ids and chat_id:
-                    for msg_id in message_ids:
+                # Логируем информацию о сообщениях
+                logger.info(f"Post context: {post_context}")
+                logger.info(f"Query message ID: {query.message.message_id}")
+                logger.info(f"Post message ID: {post_context.message_id}")
+                logger.info(f"Original media IDs: {post_context.original_media}")
+                
+                # Сначала удаляем сообщение с фото
+                try:
+                    await context.bot.delete_message(
+                        chat_id=chat_id,
+                        message_id=post_context.message_id
+                    )
+                    logger.info(f"Deleted main post message {post_context.message_id}")
+                except Exception as e:
+                    logger.warning(f"Could not delete main post message: {e}")
+                
+                # Затем удаляем все остальные фото
+                if post_context.original_media:
+                    for media_id in post_context.original_media:
                         try:
                             await context.bot.delete_message(
                                 chat_id=chat_id,
-                                message_id=msg_id
+                                message_id=media_id
                             )
-                            logger.info(f"Deleted message {msg_id}")
+                            logger.info(f"Deleted media message {media_id}")
                         except Exception as e:
-                            logger.error(f"Error deleting message {msg_id}: {e}")
+                            logger.warning(f"Could not delete media {media_id}: {e}")
+                
+                # В конце удаляем сообщение с кнопками
+                try:
+                    await context.bot.delete_message(
+                        chat_id=chat_id,
+                        message_id=query.message.message_id
+                    )
+                    logger.info(f"Deleted keyboard message {query.message.message_id}")
+                except Exception as e:
+                    logger.warning(f"Could not delete keyboard message: {e}")
+                
+                # Отправляем сообщение об успешном удалении
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"Пост удален модератором {moderator_name}"
+                )
+                
+            except Exception as e:
+                logger.error(f"Error in delete operation: {e}")
+                try:
+                    await context.bot.send_message(
+                        chat_id=post_context.chat_id,
+                        text="Произошла ошибка при удалении поста"
+                    )
+                except Exception as send_error:
+                    logger.error(f"Could not send error message: {send_error}")
+            finally:
+                self.state_manager.clear_post_context(post_context.post_id)
+            
+        elif action == "text":
+            try:
+                # Сохраняем новый текст
+                if post_context.temp_text:
+                    await context.bot.edit_message_caption(
+                        chat_id=post_context.chat_id,
+                        message_id=post_context.message_id,
+                        caption=post_context.temp_text
+                    )
+                    await self._show_moderate_menu(query, post_context)
+                else:
+                    await context.bot.send_message(
+                        chat_id=post_context.chat_id,
+                        text="Нет нового текста для сохранения"
+                    )
+                    await self._show_edit_menu(query, post_context)
+            except Exception as e:
+                logger.error(f"Error saving text: {e}")
+                await context.bot.send_message(
+                    chat_id=post_context.chat_id,
+                    text="Произошла ошибка при сохранении текста"
+                )
+                await self._show_edit_menu(query, post_context)
+                
+        elif action == "add_media":
+            try:
+                # Сохраняем новые фото
+                if post_context.temp_media:
+                    # TODO: Реализовать обновление медиа
+                    await context.bot.send_message(
+                        chat_id=post_context.chat_id,
+                        text="Обновление медиа пока не реализовано"
+                    )
+                else:
+                    await context.bot.send_message(
+                        chat_id=post_context.chat_id,
+                        text="Нет новых медиа для сохранения"
+                    )
+                await self._show_edit_menu(query, post_context)
+            except Exception as e:
+                logger.error(f"Error adding media: {e}")
+                await context.bot.send_message(
+                    chat_id=post_context.chat_id,
+                    text="Произошла ошибка при добавлении медиа"
+                )
+                await self._show_edit_menu(query, post_context)
+            
+        elif action == "remove_media":
+            try:
+                # Удаляем выбранные фото
+                if post_context.media_to_remove:
+                    # TODO: Реализовать удаление медиа
+                    await context.bot.send_message(
+                        chat_id=post_context.chat_id,
+                        text="Удаление медиа пока не реализовано"
+                    )
+                else:
+                    await context.bot.send_message(
+                        chat_id=post_context.chat_id,
+                        text="Нет медиа для удаления"
+                    )
+                await self._show_edit_menu(query, post_context)
+            except Exception as e:
+                logger.error(f"Error removing media: {e}")
+                await context.bot.send_message(
+                    chat_id=post_context.chat_id,
+                    text="Произошла ошибка при удалении медиа"
+                )
+                await self._show_edit_menu(query, post_context)
 
-            # Удаляем файлы поста
-            if os.path.exists(post_dir):
-                for file in os.listdir(post_dir):
-                    os.remove(os.path.join(post_dir, file))
-                os.rmdir(post_dir)
-                logger.info(f"Post directory {post_dir} deleted")
+    async def _handle_cancel(self, query: CallbackQuery, post_context: PostContext):
+        """Обработка отмены действия"""
+        if post_context.state == BotState.CONFIRM_PUBLISH:
+            await self._show_moderate_menu(query, post_context)
+        elif post_context.state == BotState.QUICK_DELETE:
+            keyboard = get_post_keyboard(post_context.post_id)
+            await query.message.edit_reply_markup(reply_markup=keyboard)
+            post_context.state = BotState.POST_VIEW
+            self.state_manager.set_post_context(post_context.post_id, post_context)
+        elif post_context.state == BotState.CONFIRM_DELETE:
+            await self._show_moderate_menu(query, post_context)
+        elif post_context.state == BotState.EDIT_TEXT_CONFIRM:
+            await self._show_edit_menu(query, post_context)
+        elif post_context.state == BotState.EDIT_MEDIA_ADD_CONFIRM:
+            await self._show_media_edit(query, post_context)
+        elif post_context.state == BotState.EDIT_MEDIA_REMOVE_CONFIRM:
+            await self._show_media_edit(query, post_context)
 
-            # Удаляем информацию о посте из storage
-            async with AsyncFileManager(STORAGE_PATH) as storage:
-                data = await storage.read()
-                if post_id in data:
-                    del data[post_id]
-                    await storage.write(data)
-                    logger.info(f"Post {post_id} deleted from storage")
-
-            # Отправляем подтверждение
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=f"✅ Пост {post_id} и все связанные сообщения удалены"
+    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка текстовых сообщений"""
+        message = update.message
+        
+        # Находим пост в состоянии ожидания текста или медиа
+        post_context = next(
+            (p for p in self.state_manager._posts.values() 
+             if p.state in [BotState.EDIT_TEXT_WAIT, BotState.EDIT_MEDIA_ADD_WAIT, BotState.EDIT_MEDIA_REMOVE_WAIT]),
+            None
+        )
+        
+        if not post_context:
+            return
+        
+        if post_context.state == BotState.EDIT_TEXT_WAIT:
+            post_context.temp_text = message.text
+            keyboard = get_text_confirm_keyboard(post_context.post_id)
+            await message.reply_text(
+                "Сохранить новый текст?",
+                reply_markup=keyboard
             )
-
-        elif action == "cancel":
-            # Возвращаем основную клавиатуру
-            logger.info("Cancelling action and returning to main keyboard")
-            await query.message.edit_text(
-                text=f"Выберите действие для поста {post_id}:",
-                reply_markup=get_post_keyboard(post_id)
-            )
-            logger.info(f"Returned to main keyboard for post {post_id}")
-
-        elif action == "publish":
-            # TODO: Реализовать публикацию поста
-            logger.info("Publish action received")
-            await query.message.edit_text(
-                text=f"Пост {post_id} опубликован"
-            )
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=f"✅ Пост {post_id} опубликован"
-            )
-
-        elif action == "edit":
-            # TODO: Реализовать редактирование поста
-            logger.info("Edit action received")
-            await query.message.edit_text(
-                text=f"Редактирование поста {post_id} (заглушка)"
-            )
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=f"✏️ Редактирование поста {post_id} (заглушка)"
-            )
-
-        else:
-            logger.warning(f"Unknown action received: {action}")
+            post_context.state = BotState.EDIT_TEXT_CONFIRM
+            self.state_manager.set_post_context(post_context.post_id, post_context)
+            
+        elif post_context.state == BotState.EDIT_MEDIA_REMOVE_WAIT:
+            try:
+                # Парсим номера фотографий
+                numbers = [int(n.strip()) for n in message.text.split(',')]
+                # Проверяем, что номера в допустимом диапазоне
+                if all(1 <= n <= len(post_context.original_media) for n in numbers):
+                    post_context.media_to_remove = numbers
+                    keyboard = get_media_remove_confirm_keyboard(post_context.post_id)
+                    await message.reply_text(
+                        f"Удалить фотографии {', '.join(map(str, numbers))}?",
+                        reply_markup=keyboard
+                    )
+                    post_context.state = BotState.EDIT_MEDIA_REMOVE_CONFIRM
+                    self.state_manager.set_post_context(post_context.post_id, post_context)
+                else:
+                    await message.reply_text(
+                        f"Номера должны быть от 1 до {len(post_context.original_media)}"
+                    )
+            except ValueError:
+                await message.reply_text(
+                    "Пожалуйста, введите номера фотографий через запятую (например: 1, 2, 3)"
+                )
 
     async def check_posts(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
