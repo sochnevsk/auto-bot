@@ -27,6 +27,8 @@ class Settings(BaseSettings):
         default="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         description="Формат логов"
     )
+    PUBLIC_CHANNEL_ID: str = "-1002520093089"  # ID открытого канала
+    PRIVATE_CHANNEL_ID: str = "-1002520093089"  # ID закрытого канала
 
     @property
     def moderator_ids(self) -> List[int]:

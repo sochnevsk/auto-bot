@@ -10,7 +10,7 @@ def get_post_keyboard(post_id: str) -> InlineKeyboardMarkup:
     keyboard = [
         [
             InlineKeyboardButton("✅ Модерировать", callback_data=f"moderate_{post_id}"),
-            InlineKeyboardButton("❌ Удалить", callback_data=f"delete_{post_id}")
+            InlineKeyboardButton("❌ Удалить", callback_data=f"quick_delete_{post_id}")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -31,14 +31,14 @@ def get_moderate_keyboard(post_id: str) -> InlineKeyboardMarkup:
 
 
 def get_edit_keyboard(post_id: str) -> InlineKeyboardMarkup:
-    """Клавиатура меню редактирования"""
+    """Создает клавиатуру для редактирования поста"""
     keyboard = [
         [
-            InlineKeyboardButton("Текст", callback_data=f"edit_text_{post_id}"),
-            InlineKeyboardButton("🖼 Медиа", callback_data=f"edit_media_{post_id}")
+            InlineKeyboardButton("Текст", callback_data=f"edittext_{post_id}"),
+            InlineKeyboardButton("Медиа", callback_data=f"editmedia_{post_id}")
         ],
         [
-            InlineKeyboardButton("🔙 Назад", callback_data=f"moderate_{post_id}")
+            InlineKeyboardButton("Назад", callback_data=f"moderate_{post_id}")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
