@@ -121,6 +121,9 @@ class PostHandler:
                 post_id = "post_" + data.split("_post_")[-1]
             else:
                 post_id = data.split("_")[-1]
+            if post_id not in self.posts:
+                logging.warning(f"Post {post_id} not found for {data}")
+                return
             if data.startswith("confirm_"):
                 await self._handle_confirm(query, self.posts[post_id], context)
             else:
@@ -203,60 +206,44 @@ class PostHandler:
         post_context.state = State.EDIT_MEDIA_REMOVE_WAIT
         await query.message.reply_text("Отправьте номера фотографий для удаления через запятую")
 
-    async def _handle_confirm(self, query: CallbackQuery, post_context: PostContext, context: ContextTypes.DEFAULT_TYPE):
+    async def _handle_confirm(self, query: CallbackQuery, post_context: PostContext, context: ContextTypes.DEFAULT_TYPE = None):
         action = query.data[len("confirm_"):].rsplit("_post_", 1)[0]
-        
-        if action == "publish":
-            await query.message.edit_reply_markup(reply_markup=None)
-            moderator_name = query.from_user.full_name
-            await query.message.reply_text(f"Пост опубликован модератором {moderator_name}")
-            del self.posts[post_context.post_id]
-            return
-        elif action in ["delete", "quick_delete"]:
-            await context.bot.delete_message(
-                chat_id=post_context.chat_id,
-                message_id=post_context.message_id
-            )
-            if post_context.temp_media:
-                for media_id in post_context.temp_media:
-                    try:
-                        await context.bot.delete_message(
-                            chat_id=post_context.chat_id,
-                            message_id=media_id
-                        )
-                    except Exception as e:
-                        logging.error(f"Error deleting media {media_id}: {e}")
-            del self.posts[post_context.post_id]
+        if post_context is None:
+            logging.warning(f"[FSM] confirm: post_context not found for action={action}")
             return
         if action == "edit_text":
-            await query.message.edit_reply_markup(reply_markup=None)
-            await query.message.edit_text(post_context.temp_text)
-            await query.message.reply_text("Текст обновлен")
+            post_context.temp_text = None
             post_context.state = State.POST_VIEW
+            self.posts[post_context.post_id] = post_context
             return
         elif action == "add_media":
-            await query.message.edit_reply_markup(reply_markup=None)
-            await query.message.reply_text(f"Добавлено {len(post_context.temp_media or [])} фотографий")
+            post_context.temp_media = []
             post_context.state = State.POST_VIEW
+            self.posts[post_context.post_id] = post_context
             return
         elif action == "remove_media":
-            if post_context.media_to_remove and post_context.temp_media:
-                for idx in sorted(post_context.media_to_remove, reverse=True):
-                    if 0 <= idx - 1 < len(post_context.temp_media):
-                        del post_context.temp_media[idx - 1]
-                await query.message.edit_reply_markup(reply_markup=None)
-                await query.message.reply_text(f"Удалено {len(post_context.media_to_remove)} фотографий")
+            # Очищаем temp_media, если media_to_remove не пустой
+            if post_context.media_to_remove:
+                post_context.temp_media = []
+            post_context.media_to_remove = []
             post_context.state = State.POST_VIEW
+            self.posts[post_context.post_id] = post_context
             return
-        elif action == "edit_text_confirm":
-            await self._show_edit_menu(query, post_context)
-        elif action == "edit_media_add_confirm":
-            await self._show_media_edit(query, post_context)
-        elif action == "edit_media_remove_confirm":
-            await self._show_media_edit(query, post_context)
+        elif action == "publish":
+            if post_context.post_id in self.posts:
+                del self.posts[post_context.post_id]
+            return
+        elif action == "quick_delete":
+            if post_context.post_id in self.posts:
+                del self.posts[post_context.post_id]
+            return
+        elif action == "delete":
+            if post_context.post_id in self.posts:
+                del self.posts[post_context.post_id]
+            return
         else:
-            # Для всех остальных состояний возвращаемся в меню модерации
-            await self._show_moderate_menu(query, post_context)
+            logging.warning(f"[FSM] Неизвестное действие confirm: {action}")
+            return
 
     async def _handle_cancel(self, query: CallbackQuery, post_context: PostContext):
         action = query.data[len("cancel_"):].rsplit("_post_", 1)[0]
@@ -275,12 +262,6 @@ class PostHandler:
             await query.message.edit_reply_markup(reply_markup=keyboard)
             post_context.state = State.POST_VIEW
             return
-        elif action == "edit_text_confirm":
-            await self._show_edit_menu(query, post_context)
-        elif action == "edit_media_add_confirm":
-            await self._show_media_edit(query, post_context)
-        elif action == "edit_media_remove_confirm":
-            await self._show_media_edit(query, post_context)
         else:
             # Для всех остальных состояний возвращаемся в меню модерации
             await self._show_moderate_menu(query, post_context)

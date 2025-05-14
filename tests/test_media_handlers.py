@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import patch, Mock, AsyncMock, mock_open
 from telegram import Update, Message, User, Chat, PhotoSize, CallbackQuery
 from telegram.ext import ContextTypes
 from src.bot.handlers.test_handlers import PostHandler, State, PostContext
