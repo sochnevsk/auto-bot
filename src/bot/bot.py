@@ -85,7 +85,7 @@ class Bot:
             data = await storage.read()
             return post_id in data and data[post_id].get("status") == "sent"
 
-    async def process_post(self, post_dir: str, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    async def process_post(self, post_dir: str, context: ContextTypes.DEFAULT_TYPE, update: Update = None) -> bool:
         """Обработка одного поста."""
         try:
             post_id = os.path.basename(post_dir)
@@ -196,14 +196,10 @@ class Bot:
                 logger.info(f"Keyboard message ID: {keyboard_message.message_id}")
                 logger.info(f"All message IDs: {message_ids}")
 
-                # Создаем контекст поста
+                # user_id из update
                 user_id = 0
-                if hasattr(context, 'user_data') and 'user_id' in context.user_data:
-                    user_id = context.user_data['user_id']
-                elif hasattr(context, 'bot_data') and 'user_id' in context.bot_data:
-                    user_id = context.bot_data['user_id']
-                elif hasattr(context, 'update') and hasattr(context.update, 'effective_user') and context.update.effective_user:
-                    user_id = context.update.effective_user.id
+                if update and update.effective_user:
+                    user_id = update.effective_user.id
                 post_context = PostContext(
                     post_id=post_id,
                     chat_id=settings.MODERATOR_GROUP_ID,
@@ -304,15 +300,21 @@ class Bot:
             await self._show_remove_media(query, post_context)
         elif action == "publish":
             await self._show_publish_confirm(query, post_context)
-        elif action == "quick_delete":
-            await self._show_quick_delete_confirm(query, post_context)
+        elif action in ("quick_delete", "quickdelete"):
+            await self._handle_quick_delete(query, post_context, context)
         elif action == "delete":
             await self._show_delete_confirm(query, post_context)
 
     async def _show_moderate_menu(self, query: CallbackQuery, post_context: PostContext):
         """Показать меню модерации"""
         keyboard = get_moderate_keyboard(post_context.post_id)
-        await query.message.edit_reply_markup(reply_markup=keyboard)
+        try:
+            await query.message.edit_reply_markup(reply_markup=keyboard)
+        except Exception as e:
+            if 'Message is not modified' in str(e):
+                logger.warning(f"[FSM] Message is not modified for post {post_context.post_id}")
+            else:
+                logger.error(f"Ошибка при изменении клавиатуры: {e}")
         post_context.state = BotState.MODERATE_MENU
         self.state_manager.set_post_context(post_context.post_id, post_context)
 
@@ -326,7 +328,13 @@ class Bot:
     async def _show_delete_confirm(self, query: CallbackQuery, post_context: PostContext):
         """Показать подтверждение удаления"""
         keyboard = get_confirm_keyboard("delete", post_context.post_id)
-        await query.message.edit_reply_markup(reply_markup=keyboard)
+        try:
+            await query.message.edit_reply_markup(reply_markup=keyboard)
+        except Exception as e:
+            if 'Message is not modified' in str(e):
+                logger.warning(f"[FSM] Message is not modified for post {post_context.post_id}")
+            else:
+                logger.error(f"Ошибка при изменении клавиатуры: {e}")
         post_context.state = BotState.CONFIRM_DELETE
         self.state_manager.set_post_context(post_context.post_id, post_context)
 
@@ -342,7 +350,13 @@ class Bot:
         logger.info(f"Showing edit menu for post {post_context.post_id}")
         logger.info(f"Current post context: {post_context}")
         keyboard = get_edit_keyboard(post_context.post_id)
-        await query.message.edit_reply_markup(reply_markup=keyboard)
+        try:
+            await query.message.edit_reply_markup(reply_markup=keyboard)
+        except Exception as e:
+            if 'Message is not modified' in str(e):
+                logger.warning(f"[FSM] Message is not modified for post {post_context.post_id}")
+            else:
+                logger.error(f"Ошибка при изменении клавиатуры: {e}")
         post_context.state = BotState.EDIT_MENU
         self.state_manager.set_post_context(post_context.post_id, post_context)
         logger.info(f"Updated post state to {BotState.EDIT_MENU}")
@@ -351,7 +365,10 @@ class Bot:
         """Показать меню редактирования текста"""
         logger.info(f"Showing text edit for post {post_context.post_id}")
         logger.info(f"Current post context: {post_context}")
-        await query.message.reply_text("Отправьте новый текст")
+        try:
+            await query.message.reply_text("Отправьте новый текст")
+        except Exception as e:
+            logger.error(f"Ошибка при отправке запроса на ввод текста: {e}")
         post_context.state = BotState.EDIT_TEXT_WAIT
         self.state_manager.set_post_context(post_context.post_id, post_context)
         logger.info(f"Updated post state to {BotState.EDIT_TEXT_WAIT}")
@@ -400,7 +417,6 @@ class Bot:
             context: ContextTypes.DEFAULT_TYPE
         """
         try:
-            # Универсальный парсер: confirm_{action}_post_{id}
             import re
             m = re.match(r"confirm_(.+)_post_", query.data)
             action = m.group(1) if m else None
@@ -416,7 +432,30 @@ class Bot:
                 await self._handle_quick_delete(query, post_context, context)
                 return
             elif action == "delete":
-                await self._handle_delete(query, post_context)
+                await self._handle_delete(query, post_context, context)
+                # --- ДОБАВЛЕНО: удаление сообщений из чата ---
+                message_ids = []
+                async with AsyncFileManager(STORAGE_PATH) as storage:
+                    data = await storage.read()
+                    post_info = data.get(post_context.post_id)
+                    if post_info:
+                        message_ids = post_info.get('message_ids', [])
+                for msg_id in message_ids:
+                    try:
+                        await context.bot.delete_message(chat_id=post_context.chat_id, message_id=msg_id)
+                    except Exception as e:
+                        logger.warning(f"Не удалось удалить сообщение {msg_id}: {e}")
+                # --- КОНЕЦ ДОБАВЛЕНИЯ ---
+                self.state_manager.clear_post_context(post_context.post_id)
+                async with AsyncFileManager(STORAGE_PATH) as storage:
+                    data = await storage.read()
+                    if post_context.post_id in data:
+                        del data[post_context.post_id]
+                        await storage.write(data)
+                await context.bot.send_message(
+                    chat_id=post_context.chat_id,
+                    text="Пост успешно удалён."
+                )
                 return
             elif action in ("add", "add_media"):
                 await self._handle_confirm_media_add(query, post_context, context)
@@ -497,12 +536,13 @@ class Bot:
                 logger.info(f"Storage data: {data}")
                 for post_id, post_info in data.items():
                     if post_info.get("state") in [BotState.EDIT_TEXT_WAIT, BotState.EDIT_MEDIA_ADD_WAIT, BotState.EDIT_MEDIA_REMOVE_WAIT]:
+                        user_id = update.effective_user.id if update and update.effective_user else 0
                         post_context = PostContext(
                             post_id=post_id,
                             chat_id=post_info['chat_id'],
                             message_id=post_info['message_ids'][0],
                             state=post_info['state'],
-                            user_id=update.effective_user.id if update and update.effective_user else 0,
+                            user_id=user_id,
                             original_text=post_info['text'],
                             original_media=post_info['message_ids'][:-1]
                         )
@@ -875,7 +915,7 @@ class Bot:
                     )
                     return
                 photo_ids = post_info['photos'] if 'photos' in post_info else []
-            
+                keyboard_message_id = post_info.get('keyboard_message_id', post_context.message_id)
             # Публикуем в открытый канал
             media_group = []
             for i, path in enumerate(photo_ids):
@@ -883,25 +923,29 @@ class Bot:
                     media_group.append(InputMediaPhoto(media=open(path, 'rb'), caption=post_context.original_text))
                 else:
                     media_group.append(InputMediaPhoto(media=open(path, 'rb')))
-            
             await context.bot.send_media_group(
                 chat_id=settings.OPEN_CHANNEL_ID,
                 media=media_group
             )
-            
-            # Публикуем в закрытый канал
             await context.bot.send_media_group(
                 chat_id=settings.CLOSED_CHANNEL_ID,
                 media=media_group
             )
-            
-            # Отправляем сообщение об успешной публикации
             moderator_name = query.from_user.full_name
             await context.bot.send_message(
                 chat_id=post_context.chat_id,
                 text=f"Пост опубликован модератором {moderator_name}"
             )
-            
+            # Удаляем клавиатуру у сообщения с кнопками
+            try:
+                await context.bot.edit_message_reply_markup(
+                    chat_id=post_context.chat_id,
+                    message_id=keyboard_message_id,
+                    reply_markup=None
+                )
+                logger.info(f"Клавиатура удалена у сообщения {keyboard_message_id}")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить клавиатуру: {e}")
             logger.info(f"[FSM] Перед clear_post_context: post_id={post_context.post_id}, keys={list(self.state_manager._posts.keys())}")
             self.state_manager.clear_post_context(post_context.post_id)
             logger.info(f"[FSM] После clear_post_context: post_id={post_context.post_id}, keys={list(self.state_manager._posts.keys())}")
@@ -919,16 +963,24 @@ class Bot:
             return
 
     async def _handle_quick_delete(self, query: CallbackQuery, post_context: PostContext, context: ContextTypes.DEFAULT_TYPE):
-        """Быстрое удаление поста и всех связанных сообщений."""
+        """Быстрое удаление поста и всех связанных сообщений (аналогично обычному удалению)."""
         try:
-            # Удаляем все сообщения (медиа и клавиатуру)
+            logger.info(f"[QUICK_DELETE] Вход в функцию для post_id={post_context.post_id}")
             message_ids = []
+            keyboard_message_id = post_context.message_id
             async with AsyncFileManager(STORAGE_PATH) as storage:
                 data = await storage.read()
+                logger.info(f"[QUICK_DELETE] Ключи storage: {list(data.keys())}")
                 post_info = data.get(post_context.post_id)
-                if post_info:
+                if not post_info:
+                    logger.warning(f"[QUICK_DELETE] post_info not found for {post_context.post_id}")
+                else:
+                    logger.info(f"[QUICK_DELETE] Найден post_info: {post_info}")
                     message_ids = post_info.get('message_ids', [])
-                    # Удаляем ready.txt файл
+                    keyboard_message_id = post_info.get('keyboard_message_id', post_context.message_id)
+                    logger.info(f"[QUICK_DELETE] message_ids: {message_ids}")
+                    if not message_ids:
+                        logger.warning(f"[QUICK_DELETE] message_ids empty for {post_context.post_id}")
                     post_dir = post_info.get('dir')
                     if post_dir:
                         ready_file = os.path.join(post_dir, "ready.txt")
@@ -938,19 +990,31 @@ class Bot:
             for msg_id in message_ids:
                 try:
                     await context.bot.delete_message(chat_id=post_context.chat_id, message_id=msg_id)
+                    logger.info(f"[QUICK_DELETE] Удалено сообщение {msg_id}")
                 except Exception as e:
                     logger.warning(f"Не удалось удалить сообщение {msg_id}: {e}")
+            # Удаляем клавиатуру у сообщения с кнопками
+            try:
+                await context.bot.edit_message_reply_markup(
+                    chat_id=post_context.chat_id,
+                    message_id=keyboard_message_id,
+                    reply_markup=None
+                )
+                logger.info(f"Клавиатура удалена у сообщения {keyboard_message_id}")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить клавиатуру: {e}")
             self.state_manager.clear_post_context(post_context.post_id)
             async with AsyncFileManager(STORAGE_PATH) as storage:
                 data = await storage.read()
                 if post_context.post_id in data:
                     del data[post_context.post_id]
                     await storage.write(data)
+                    logger.info(f"[QUICK_DELETE] post_id {post_context.post_id} удалён из storage")
             await context.bot.send_message(
                 chat_id=post_context.chat_id,
                 text="Пост и все связанные сообщения были быстро удалены."
             )
-            logger.info(f"Пост {post_context.post_id} и все сообщения удалены (quick delete)")
+            logger.info(f"[QUICK_DELETE] Пост {post_context.post_id} и все сообщения удалены (quick delete)")
         except Exception as e:
             logger.error(f"Ошибка при быстром удалении поста: {e}")
             await context.bot.send_message(
@@ -958,7 +1022,7 @@ class Bot:
                 text="Произошла ошибка при быстром удалении поста."
             )
 
-    async def _handle_delete(self, query: CallbackQuery, post_context: PostContext):
+    async def _handle_delete(self, query: CallbackQuery, post_context: PostContext, context: ContextTypes.DEFAULT_TYPE):
         """Обычное удаление поста с подтверждением."""
         try:
             # Удаляем ready.txt файл
@@ -975,12 +1039,18 @@ class Bot:
             
             # Показываем подтверждение удаления
             keyboard = get_confirm_keyboard("delete", post_context.post_id)
-            await query.message.edit_reply_markup(reply_markup=keyboard)
+            try:
+                await query.message.edit_reply_markup(reply_markup=keyboard)
+            except Exception as e:
+                if 'Message is not modified' in str(e):
+                    logger.warning(f"[FSM] Message is not modified for post {post_context.post_id}")
+                else:
+                    logger.error(f"Ошибка при изменении клавиатуры: {e}")
             post_context.state = BotState.CONFIRM_DELETE
             self.state_manager.set_post_context(post_context.post_id, post_context)
         except Exception as e:
             logger.error(f"Ошибка при показе подтверждения удаления: {e}")
-            await query.bot.send_message(
+            await context.bot.send_message(
                 chat_id=post_context.chat_id,
                 text="Произошла ошибка при попытке удалить пост."
             )
