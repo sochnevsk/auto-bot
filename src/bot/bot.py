@@ -63,7 +63,7 @@ class Bot:
         """Настройка обработчиков команд."""
         logger.info("=== Начало настройки обработчиков команд ===")
         try:
-            # Обработчик команды /test
+        # Обработчик команды /test
             logger.info("Регистрация обработчика /test")
             self.application.add_handler(CommandHandler("test", self.test_command))
             logger.info("Обработчик /test успешно зарегистрирован")
@@ -108,28 +108,28 @@ class Bot:
             ))
             logger.info("Обработчик edit_ успешно зарегистрирован")
 
-            # Обработчик callback-запросов для редактирования медиа (уникальный)
-            logger.info("Регистрация обработчика media_editmedia_")
+            # Обработчик callback-запросов для редактирования медиа (editmedia_)
+            logger.info("Регистрация обработчика editmedia_")
             self.application.add_handler(CallbackQueryHandler(
                 self.handle_edit_media_callback,
-                pattern=r"^media_editmedia_"
+                pattern=r"^editmedia_"
             ))
-            logger.info("Обработчик media_editmedia_ успешно зарегистрирован")
+            logger.info("Обработчик editmedia_ успешно зарегистрирован")
 
-            # Обработчик callback-запросов для добавления медиа (уникальный)
-            logger.info("Регистрация обработчика media_addmedia_")
+            # Обработчик callback-запросов для добавления медиа (addmedia_)
+            logger.info("Регистрация обработчика addmedia_")
             self.application.add_handler(CallbackQueryHandler(
                 self.handle_add_media_callback,
-                pattern=r"^media_addmedia_"
+                pattern=r"^addmedia_"
             ))
-            logger.info("Обработчик media_addmedia_ успешно зарегистрирован")
-
-            # Обработчик текстовых сообщений
+            logger.info("Обработчик addmedia_ успешно зарегистрирован")
+        
+        # Обработчик текстовых сообщений
             logger.info("Регистрация обработчика текстовых сообщений")
             self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
             logger.info("Обработчик текстовых сообщений успешно зарегистрирован")
-
-            # Обработчик фотографий
+        
+        # Обработчик фотографий
             logger.info("Регистрация обработчика фотографий")
             self.application.add_handler(MessageHandler(filters.PHOTO, self.handle_message))
             logger.info("Обработчик фотографий успешно зарегистрирован")
@@ -138,6 +138,14 @@ class Bot:
             logger.info("Регистрация обработчика документов")
             self.application.add_handler(MessageHandler(filters.Document.IMAGE, self.handle_message))
             logger.info("Обработчик документов успешно зарегистрирован")
+
+            # Обработчик callback-запросов для удаления медиа (removemedia_)
+            logger.info("Регистрация обработчика removemedia_")
+            self.application.add_handler(CallbackQueryHandler(
+                self.handle_remove_media_callback,
+                pattern=r"^removemedia_"
+            ))
+            logger.info("Обработчик removemedia_ успешно зарегистрирован")
 
             logger.info("=== Настройка обработчиков команд успешно завершена ===")
         except Exception as e:
@@ -441,7 +449,7 @@ class Bot:
             # Отправляем новый пост
             logger.info("Отправка нового поста")
             messages = await context.bot.send_media_group(
-                    chat_id=post_context.chat_id,
+                chat_id=post_context.chat_id,
                 media=media_group
             )
             logger.info("Новый пост успешно отправлен")
@@ -470,7 +478,7 @@ class Bot:
                 logger.info(f"Source info: {source_info}")
 
             keyboard_message = await context.bot.send_message(
-                                chat_id=post_context.chat_id,
+                chat_id=post_context.chat_id,
                 text=f"Выберите действие для поста \n{source_info}:",
                 reply_markup=get_moderate_keyboard(post_id),
                 read_timeout=20,
@@ -505,12 +513,12 @@ class Bot:
                 logger.info(f"Временный файл {temp_file} удален")
             except Exception as e:
                 logger.error(f"Ошибка при удалении temp.txt: {e}")
-            
+
         except Exception as e:
             logger.error(f"Ошибка при обработке нового текста: {e}", exc_info=True)
             await update.message.reply_text("❌ Произошла ошибка при обработке текста")
             return
-        
+
         logger.info("=== Завершение обработки сообщения ===")
 
     async def check_posts(self, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1192,14 +1200,14 @@ class Bot:
             )
 
     async def handle_edit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обработчик нажатия на кнопку 'Редактировать'."""
+        """Обработчик нажатия на кнопку 'Редактировать' или 'Назад' из меню медиа."""
         logger.info("=== Начало обработки callback-запроса на редактирование ===")
         
         query = update.callback_query
         await query.answer()
         
         # Корректно извлекаем post_id
-        post_id = query.data[len("edit_"):]
+        post_id = query.data[len("edit_ "):] if query.data.startswith("edit_ ") else query.data[len("edit_"):]
         logger.info(f"Обработка редактирования поста {post_id}")
         
         # Получаем контекст поста
@@ -1211,7 +1219,11 @@ class Bot:
         
         # Проверяем текущее состояние
         logger.info(f"Текущее состояние поста: {post_context.state}")
-        if post_context.state != BotState.POST_VIEW and post_context.state != BotState.MODERATE_MENU:
+        allowed_states = [
+            BotState.POST_VIEW, BotState.MODERATE_MENU,
+            BotState.EDIT_MEDIA_MENU, BotState.EDIT_MEDIA_ADD_WAIT, BotState.EDIT_MEDIA_REMOVE_WAIT
+        ]
+        if post_context.state not in allowed_states:
             logger.error(f"Некорректное состояние для редактирования: {post_context.state}")
             await query.message.edit_text("Ошибка: некорректное состояние поста")
             return
@@ -1227,6 +1239,7 @@ class Bot:
             text="Выберите, что хотите отредактировать:",
             reply_markup=get_edit_keyboard(post_id)
         )
+        logger.info(f"Служебное сообщение с клавиатурой отправлено, message_id={msg.message_id}")
         # Сохраняем ID сообщения с клавиатурой в service_messages
         post_context.service_messages.append(msg.message_id)
         self.state_manager.set_post_context(post_id, post_context)
@@ -1283,151 +1296,100 @@ class Bot:
     # --- МЕДИА-ОБРАБОТКА (из 5.1, с уникальными именами) ---
     async def handle_edit_media_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
-        Обработчик callback-запроса для кнопки "Медиа" (media_editmedia_{post_id})
-        Переводит пост в состояние MEDIA_EDIT_MENU и показывает меню "Добавить/Удалить".
+        Обработчик callback-запроса для кнопки "Медиа" (editmedia_{post_id})
+        Переводит пост в состояние EDIT_MEDIA_MENU и показывает меню "Добавить/Удалить".
         """
         query = update.callback_query
         await query.answer()
-        post_id = query.data[len("media_editmedia_"):]
-        logger.info(f"Обработка media_editmedia для поста {post_id}")
+        post_id = query.data[len("editmedia_"):]
+        logger.info(f"=== Начало обработки editmedia для поста {post_id} ===")
+        logger.info(f"Получен callback_data: {query.data}")
+        logger.info(f"Ожидаемый формат: editmedia_{post_id}")
+        
         post_context = self.state_manager.get_post_context(post_id)
         if not post_context:
             logger.error(f"Контекст поста {post_id} не найден")
             await query.message.edit_text("Ошибка: пост не найден")
             return
-        post_context.state = BotState.MEDIA_EDIT_MENU
+            
+        logger.info(f"Текущее состояние поста: {post_context.state}")
+        logger.info(f"Перевод поста в состояние {BotState.EDIT_MEDIA_MENU}")
+        post_context.state = BotState.EDIT_MEDIA_MENU
         self.state_manager.set_post_context(post_id, post_context)
+        
+        logger.info("Отправка меню редактирования медиа")
         await query.message.edit_text(
             text="Выберите действие с медиа:",
             reply_markup=get_media_edit_keyboard(post_id)
         )
-        logger.info(f"Пост {post_id} переведен в состояние MEDIA_EDIT_MENU")
+        logger.info(f"=== Завершение обработки editmedia для поста {post_id} ===")
 
     async def handle_add_media_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
-        Обработчик callback-запроса для кнопки "Добавить" (media_addmedia_{post_id})
-        Переводит пост в состояние MEDIA_ADD_WAIT и сообщает, сколько фото можно добавить.
+        Обработчик callback-запроса для кнопки "Добавить" (addmedia_{post_id})
+        Переводит пост в состояние EDIT_MEDIA_ADD_WAIT и сообщает, сколько фото можно добавить.
         """
         query = update.callback_query
         await query.answer()
-        post_id = query.data[len("media_addmedia_"):]
-        logger.info(f"Обработка media_addmedia для поста {post_id}")
+        post_id = query.data[len("addmedia_"):]
+        logger.info(f"=== Начало обработки addmedia для поста {post_id} ===")
+        logger.info(f"Получен callback_data: {query.data}")
+        logger.info(f"Ожидаемый формат: addmedia_{post_id}")
+        
         post_context = self.state_manager.get_post_context(post_id)
         if not post_context:
             logger.error(f"Контекст поста {post_id} не найден")
             await query.message.edit_text("Ошибка: пост не найден")
             return
-        post_context.state = BotState.MEDIA_ADD_WAIT
+            
+        logger.info(f"Текущее состояние поста: {post_context.state}")
+        logger.info(f"Перевод поста в состояние {BotState.EDIT_MEDIA_ADD_WAIT}")
+        post_context.state = BotState.EDIT_MEDIA_ADD_WAIT
         self.state_manager.set_post_context(post_id, post_context)
+        
         # Считаем, сколько фото уже есть
         post_dir = os.path.join("saved", post_id)
         old_photos = [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")]
         max_to_add = 10 - len(old_photos)
+        logger.info(f"Текущее количество фото: {len(old_photos)}")
+        logger.info(f"Можно добавить ещё фото: {max_to_add}")
+        
         msg = await context.bot.send_message(
             chat_id=post_context.chat_id,
             text=f"Отправьте новые фото для поста (можно загрузить ещё {max_to_add} фото):"
         )
+        logger.info(f"Служебное сообщение отправлено, message_id={msg.message_id}")
         post_context.service_messages.append(msg.message_id)
         self.state_manager.set_post_context(post_id, post_context)
-        logger.info(f"Пост {post_id} переведен в состояние MEDIA_ADD_WAIT, можно добавить {max_to_add} фото")
+        logger.info(f"=== Завершение обработки addmedia для поста {post_id} ===")
 
-    async def finish_media_group_add_media(self, user_id, media_group_id, post_context, context, update):
-        logger.info(f"Завершение приёма альбома фото для поста {post_context.post_id} (медиа)")
-        post_id = post_context.post_id
-        post_dir = os.path.join("saved", post_id)
-        album_photos = media_group_temp[user_id][media_group_id]
-        old_photos = [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")]
-        old_photos.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
-        old_photo_paths = [os.path.join(post_dir, f) for f in old_photos]
-        new_photo_paths = []
-        start_idx = len(old_photo_paths) + 1
-        for i, photo in enumerate(album_photos):
-            file = await photo.get_file()
-            file_path = os.path.join(post_dir, f"photo_{start_idx + i}.jpg")
-            await file.download_to_drive(file_path)
-            new_photo_paths.append(file_path)
-        all_photo_paths = old_photo_paths + new_photo_paths
-        for message_id in post_context.original_media:
-            try:
-                await context.bot.delete_message(chat_id=post_context.chat_id, message_id=message_id)
-            except Exception as e:
-                logger.error(f"Ошибка при удалении старого сообщения {message_id}: {e}")
-        for message_id in post_context.service_messages:
-            try:
-                await context.bot.delete_message(chat_id=post_context.chat_id, message_id=message_id)
-            except Exception as e:
-                logger.error(f"Ошибка при удалении служебного сообщения {message_id}: {e}")
-        post_context.original_media = []
-        post_context.service_messages = []
-        media_group = []
-        for i, path in enumerate(all_photo_paths):
-            with open(path, 'rb') as photo:
-                if i == 0:
-                    media_group.append(InputMediaPhoto(media=photo, caption=post_context.original_text))
-                else:
-                    media_group.append(InputMediaPhoto(media=photo))
-        messages = await context.bot.send_media_group(chat_id=post_context.chat_id, media=media_group)
-        message_ids = [msg.message_id for msg in messages]
-        post_context.original_media = message_ids
-        from src.bot.keyboards import get_moderate_keyboard
-        keyboard_message = await context.bot.send_message(
-            chat_id=post_context.chat_id,
-            text="Выберите действие для поста:",
-            reply_markup=get_moderate_keyboard(post_id)
-        )
-        post_context.service_messages.append(keyboard_message.message_id)
-        post_context.state = BotState.MODERATE_MENU
+    async def handle_remove_media_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        Обработчик callback-запроса для кнопки "Удалить" (removemedia_{post_id})
+        Переводит пост в состояние EDIT_MEDIA_REMOVE_WAIT и показывает сообщение о выборе фото для удаления.
+        """
+        query = update.callback_query
+        await query.answer()
+        post_id = query.data[len("removemedia_"):]
+        logger.info(f"=== Начало обработки removemedia для поста {post_id} ===")
+        logger.info(f"Получен callback_data: {query.data}")
+        logger.info(f"Ожидаемый формат: removemedia_{post_id}")
+        
+        post_context = self.state_manager.get_post_context(post_id)
+        if not post_context:
+            logger.error(f"Контекст поста {post_id} не найден")
+            await query.message.edit_text("Ошибка: пост не найден")
+            return
+            
+        logger.info(f"Текущее состояние поста: {post_context.state}")
+        logger.info(f"Перевод поста в состояние {BotState.EDIT_MEDIA_REMOVE_WAIT}")
+        post_context.state = BotState.EDIT_MEDIA_REMOVE_WAIT
         self.state_manager.set_post_context(post_id, post_context)
-        del media_group_temp[user_id][media_group_id]
-        del media_group_tasks[user_id][media_group_id]
-        logger.info(f"Пост {post_id} обновлён с новыми фото (альбом, медиа)")
-        await context.bot.send_message(chat_id=post_context.chat_id, text="✅ Фото успешно добавлены к посту!")
-
-    async def finish_single_photo_add_media(self, update, context, post_context):
-        user_id = update.message.from_user.id
-        post_id = post_context.post_id
-        post_dir = os.path.join("saved", post_id)
-        old_photos = [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")]
-        old_photos.sort(key=lambda x: int(x.split("_")[1].split(".")[0]))
-        old_photo_paths = [os.path.join(post_dir, f) for f in old_photos]
-        photo = update.message.photo[-1]
-        file = await photo.get_file()
-        file_path = os.path.join(post_dir, f"photo_{len(old_photo_paths)+1}.jpg")
-        await file.download_to_drive(file_path)
-        all_photo_paths = old_photo_paths + [file_path]
-        for message_id in post_context.original_media:
-            try:
-                await context.bot.delete_message(chat_id=post_context.chat_id, message_id=message_id)
-            except Exception as e:
-                logger.error(f"Ошибка при удалении старого сообщения {message_id}: {e}")
-        for message_id in post_context.service_messages:
-            try:
-                await context.bot.delete_message(chat_id=post_context.chat_id, message_id=message_id)
-            except Exception as e:
-                logger.error(f"Ошибка при удалении служебного сообщения {message_id}: {e}")
-        post_context.original_media = []
-        post_context.service_messages = []
-        media_group = []
-        for i, path in enumerate(all_photo_paths):
-            with open(path, 'rb') as photo:
-                if i == 0:
-                    media_group.append(InputMediaPhoto(media=photo, caption=post_context.original_text))
-                else:
-                    media_group.append(InputMediaPhoto(media=photo))
-        messages = await context.bot.send_media_group(chat_id=post_context.chat_id, media=media_group)
-        message_ids = [msg.message_id for msg in messages]
-        post_context.original_media = message_ids
-        from src.bot.keyboards import get_moderate_keyboard
-        keyboard_message = await context.bot.send_message(
-            chat_id=post_context.chat_id,
-            text="Выберите действие для поста:",
-            reply_markup=get_moderate_keyboard(post_id)
+        
+        await query.message.edit_text(
+            text="Выберите фото для удаления (функционал в разработке)",
         )
-        post_context.service_messages.append(keyboard_message.message_id)
-        post_context.state = BotState.MODERATE_MENU
-        self.state_manager.set_post_context(post_id, post_context)
-        logger.info(f"Пост {post_id} обновлён с новым фото (одиночное, медиа)")
-        await context.bot.send_message(chat_id=post_context.chat_id, text="✅ Фото успешно добавлены к посту!")
+        logger.info(f"=== Завершение обработки removemedia для поста {post_id} ===")
 
 def main():
     """Основная функция."""
