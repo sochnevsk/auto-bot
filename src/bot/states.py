@@ -28,7 +28,7 @@ class BotState(str, Enum):
         return state in [
             cls.IDLE, cls.EDIT_TEXT, cls.EDIT_PHOTO, cls.EDIT_MENU,
             cls.MODERATE_MENU, cls.POST_VIEW, cls.EDIT_TEXT_WAIT,
-            cls.EDIT_MEDIA_MENU, cls.EDIT_MEDIA_ADD_WAIT
+            cls.EDIT_MEDIA_MENU, cls.EDIT_MEDIA_ADD_WAIT, cls.EDIT_MEDIA_REMOVE_WAIT
         ]
 
 
