@@ -341,7 +341,7 @@ class Bot:
             logger.info(f"  - Chat ID: {ctx.chat_id}")
             logger.info(f"  - State: {ctx.state}")
             logger.info(f"  - Original Text: {ctx.original_text}")
-            if ctx.chat_id == update.message.chat_id and ctx.state in [BotState.EDIT_MEDIA_ADD_WAIT, BotState.EDIT_TEXT_WAIT]:
+            if ctx.chat_id == update.message.chat_id and ctx.state in [BotState.EDIT_MEDIA_ADD_WAIT, BotState.EDIT_TEXT_WAIT, BotState.EDIT_MEDIA_REMOVE_WAIT]:
                 post_context = ctx
                 post_id = pid
                 logger.info(f"Найден подходящий контекст поста: {post_id} (state={ctx.state})")
@@ -495,6 +495,104 @@ class Bot:
                 logger.error(f"Ошибка при обработке нового текста: {e}", exc_info=True)
                 await update.message.reply_text("❌ Произошла ошибка при обработке текста")
                 return
+            logger.info("=== Завершение обработки сообщения ===")
+            return
+        if post_context and post_context.state == BotState.EDIT_MEDIA_REMOVE_WAIT:
+            logger.info(f"handle_message: обработка удаления фото (state={post_context.state})")
+            # Сохраняем ID пользовательского сообщения
+            post_context.user_message_ids.append(update.message.message_id)
+            self.state_manager.set_post_context(post_id, post_context)
+            
+            # Получаем номера фото для удаления
+            text = update.message.text.strip()
+            try:
+                numbers = list(map(int, text.split()))
+            except Exception:
+                await update.message.reply_text("❌ Ошибка: введите номера фото через пробел, например: 1 3 4")
+                return
+
+            post_dir = os.path.join("saved", post_id)
+            photos = [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")]
+            photos.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
+            
+            if not photos:
+                await update.message.reply_text("В этом посте нет фото для удаления.")
+                return
+
+            # Проверяем валидность номеров
+            to_delete = set()
+            for n in numbers:
+                if 1 <= n <= len(photos):
+                    to_delete.add(n-1)
+            
+            if not to_delete:
+                await update.message.reply_text("❌ Ошибка: нет корректных номеров для удаления.")
+                return
+
+            # Удаляем выбранные фото
+            deleted = []
+            for idx in sorted(to_delete, reverse=True):
+                try:
+                    os.remove(os.path.join(post_dir, photos[idx]))
+                    deleted.append(photos[idx])
+                except Exception as e:
+                    logger.error(f"Ошибка при удалении файла {photos[idx]}: {e}")
+
+            # Обновляем список фото
+            remaining_photos = [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")]
+            remaining_photos.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
+
+            # Переименовываем оставшиеся фото для последовательности
+            for i, fname in enumerate(remaining_photos):
+                correct_name = f"photo_{i+1}.jpg"
+                if fname != correct_name:
+                    os.rename(os.path.join(post_dir, fname), os.path.join(post_dir, correct_name))
+
+            # Удаляем старые сообщения с фото
+            for message_id in post_context.original_media:
+                try:
+                    await context.bot.delete_message(chat_id=post_context.chat_id, message_id=message_id)
+                except Exception as e:
+                    logger.error(f"Ошибка при удалении старого сообщения {message_id}: {e}")
+
+            for message_id in post_context.service_messages:
+                try:
+                    await context.bot.delete_message(chat_id=post_context.chat_id, message_id=message_id)
+                except Exception as e:
+                    logger.error(f"Ошибка при удалении служебного сообщения {message_id}: {e}")
+
+            post_context.original_media = []
+            post_context.service_messages = []
+
+            # Если остались фото — отправляем их заново
+            remaining_photos = [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")]
+            remaining_photos.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
+
+            if remaining_photos:
+                media_group = []
+                for i, fname in enumerate(remaining_photos):
+                    path = os.path.join(post_dir, fname)
+                    with open(path, 'rb') as photo:
+                        if i == 0:
+                            media_group.append(InputMediaPhoto(media=photo, caption=post_context.original_text))
+                        else:
+                            media_group.append(InputMediaPhoto(media=photo))
+                messages = await context.bot.send_media_group(chat_id=post_context.chat_id, media=media_group)
+                message_ids = [msg.message_id for msg in messages]
+                post_context.original_media = message_ids
+
+            # Клавиатура
+            keyboard_message = await context.bot.send_message(
+                chat_id=post_context.chat_id,
+                text="Выберите действие для поста:",
+                reply_markup=get_moderate_keyboard(post_id)
+            )
+            post_context.service_messages.append(keyboard_message.message_id)
+            post_context.state = BotState.MODERATE_MENU
+            self.state_manager.set_post_context(post_id, post_context)
+
+            await update.message.reply_text(f"✅ Фото удалены: {' '.join(deleted) if deleted else 'ничего не удалено'}")
+            logger.info(f"Фото удалены из поста {post_id}: {deleted}")
             logger.info("=== Завершение обработки сообщения ===")
             return
         logger.info("Контекст поста не найден")
@@ -1534,9 +1632,32 @@ class Bot:
         self.state_manager.set_post_context(post_id, post_context)
         logger.info(f"Смена состояния: {old_state} -> {post_context.state} для поста {post_id}")
         
-        await query.message.edit_text(
-            text="Выберите фото для удаления (функционал в разработке)",
+        # Получаем список фото
+        post_dir = os.path.join("saved", post_id)
+        photos = [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")]
+        photos.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
+        
+        if not photos:
+            await query.message.edit_text(
+                text="В этом посте нет фото для удаления.",
+                reply_markup=get_media_edit_keyboard(post_id)
+            )
+            post_context.state = BotState.EDIT_MEDIA_MENU
+            self.state_manager.set_post_context(post_id, post_context)
+            return
+        
+        # Формируем сообщение со списком фото
+        message = "Выберите номера фото для удаления (через пробел):\n\n"
+        for i, photo in enumerate(photos, 1):
+            message += f"{i}. {photo}\n"
+        
+        msg = await context.bot.send_message(
+            chat_id=post_context.chat_id,
+            text=message
         )
+        post_context.service_messages.append(msg.message_id)
+        self.state_manager.set_post_context(post_id, post_context)
+        
         logger.info(f"=== Завершение обработки removemedia для поста {post_id} ===")
 
 def main():
