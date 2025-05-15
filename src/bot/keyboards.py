@@ -10,7 +10,7 @@ def get_post_keyboard(post_id: str) -> InlineKeyboardMarkup:
     keyboard = [
         [
             InlineKeyboardButton("✅ Модерировать", callback_data=f"moderate_{post_id}"),
-            InlineKeyboardButton("❌ Удалить", callback_data=f"quickdelete_{post_id}")
+            InlineKeyboardButton("❌ Удалить", callback_data=f"remove_media_{post_id}")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -34,7 +34,7 @@ def get_edit_keyboard(post_id: str) -> InlineKeyboardMarkup:
     """Создает клавиатуру для редактирования поста"""
     keyboard = [
         [
-            InlineKeyboardButton("Текст", callback_data=f"edit_text_{post_id}"),
+            InlineKeyboardButton("Текст", callback_data=f"edittext_{post_id}"),
             InlineKeyboardButton("Медиа", callback_data=f"editmedia_{post_id}")
         ],
         [
@@ -48,8 +48,8 @@ def get_media_edit_keyboard(post_id: str) -> InlineKeyboardMarkup:
     """Клавиатура редактирования медиа"""
     keyboard = [
         [
-            InlineKeyboardButton("Добавить", callback_data=f"add_media_{post_id}"),
-            InlineKeyboardButton("Удалить", callback_data=f"remove_media_{post_id}")
+            InlineKeyboardButton("Добавить", callback_data=f"addmedia_{post_id}"),
+            InlineKeyboardButton("Удалить", callback_data=f"removemedia_{post_id}")
         ],
         [
             InlineKeyboardButton("🔙 Назад", callback_data=f"edit_{post_id}")
@@ -58,23 +58,23 @@ def get_media_edit_keyboard(post_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_text_edit_keyboard(post_id: str) -> InlineKeyboardMarkup:
-    """Клавиатура редактирования текста"""
+def get_text_confirm_keyboard(post_id: str) -> InlineKeyboardMarkup:
+    """Клавиатура подтверждения изменений текста"""
     keyboard = [
         [
-            InlineKeyboardButton("✅ Сохранить", callback_data=f"confirm_edit_text_{post_id}"),
-            InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_edit_text_{post_id}")
+            InlineKeyboardButton("✅ Да", callback_data=f"confirm_text_{post_id}"),
+            InlineKeyboardButton("❌ Нет", callback_data=f"cancel_text_{post_id}")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 
 def get_media_add_confirm_keyboard(post_id: str) -> InlineKeyboardMarkup:
-    """Клавиатура подтверждения добавления медиа"""
+    """Создает клавиатуру для подтверждения добавления медиа."""
     keyboard = [
         [
-            InlineKeyboardButton("✅ Да", callback_data=f"confirm_add_media_{post_id}"),
-            InlineKeyboardButton("❌ Нет", callback_data=f"cancel_add_media_{post_id}")
+            InlineKeyboardButton("✅ Сохранить", callback_data=f"confirm_add_media_{post_id}"),
+            InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_media_{post_id}")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)

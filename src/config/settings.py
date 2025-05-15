@@ -4,48 +4,34 @@
 import os
 from typing import List
 from pydantic_settings import BaseSettings
-from pydantic import Field
-from dotenv import load_dotenv
-
-# Загружаем переменные окружения из .env файла
-load_dotenv()
 
 class Settings(BaseSettings):
     """Настройки бота."""
-    BOT_TOKEN: str = Field(..., description="Токен бота Telegram")
-    MODERATOR_GROUP_ID: str = Field(..., description="ID группы модераторов")
-    MODERATOR_IDS: str = Field(..., description="ID модераторов через запятую или в кавычках")
-    OPEN_CHANNEL_ID: str = Field(..., description="ID открытого канала")
-    CLOSED_CHANNEL_ID: str = Field(..., description="ID закрытого канала")
-    MAX_POSTS: int = Field(100, description="Максимальное количество постов")
-    MEDIA_GROUP_TIMEOUT: float = Field(9.0, description="Таймаут для медиагрупп")
-    CHANNELS: str = Field(default="", description="Список каналов через запятую")
-    MEDIA_DIR: str = Field(default="media", description="Директория для медиафайлов")
-    LOG_DIR: str = Field(default="logs", description="Директория для логов")
-    LOG_LEVEL: str = Field(default="INFO", description="Уровень логирования")
-    LOG_FORMAT: str = Field(
-        default="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        description="Формат логов"
-    )
-    PUBLIC_CHANNEL_ID: str = "-1002520093089"  # ID открытого канала
-    PRIVATE_CHANNEL_ID: str = "-1002520093089"  # ID закрытого канала
-
-    @property
-    def moderator_ids(self) -> List[int]:
-        # Убираем кавычки и пробелы, разбиваем по запятой
-        return [int(x.strip().replace('"', '')) for x in self.MODERATOR_IDS.split(',') if x.strip()]
-
-    @property
-    def channels(self) -> List[str]:
-        return [x.strip() for x in self.CHANNELS.split(",") if x.strip()]
-
+    
+    # Токен бота
+    BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
+    
+    # ID группы модераторов
+    MODERATOR_GROUP_ID: int = int(os.getenv("MODERATOR_GROUP_ID", "0"))
+    
+    # ID открытого канала
+    OPEN_CHANNEL_ID: int = int(os.getenv("OPEN_CHANNEL_ID", "0"))
+    
+    # ID закрытого канала
+    CLOSED_CHANNEL_ID: int = int(os.getenv("CLOSED_CHANNEL_ID", "0"))
+    
+    # ID модератора
+    MODERATOR_IDS: int = int(os.getenv("MODERATOR_IDS", "0"))
+    
+    # Настройки логирования
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "DEBUG")
+    LOG_FORMAT: str = os.getenv("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s")
+    LOG_DIR: str = os.getenv("LOG_DIR", "logs")
+    
     class Config:
+        """Конфигурация настроек."""
         env_file = ".env"
         env_file_encoding = "utf-8"
 
 # Создаем экземпляр настроек
-settings = Settings()
-
-# Создаем необходимые директории
-os.makedirs(settings.MEDIA_DIR, exist_ok=True)
-os.makedirs(settings.LOG_DIR, exist_ok=True) 
+settings = Settings() 

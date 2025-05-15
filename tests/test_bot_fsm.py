@@ -2,10 +2,12 @@ import pytest
 from unittest.mock import Mock, AsyncMock, mock_open, patch
 from telegram import Update, Message, User, Chat, CallbackQuery
 from telegram.ext import ContextTypes
-from src.bot.bot import Bot
-from src.bot.states import BotState, PostContext
+from bot.bot import Bot
+from bot.states import BotState, PostContext
 import builtins
 import io
+import telegram
+import uuid
 
 @pytest.fixture
 def bot_instance():
@@ -45,6 +47,20 @@ def make_mock_update(user_id=123, chat_id=456, message_id=789, text=None, photo=
     update.callback_query.data = callback_data
     return update
 
+def make_session_id() -> str:
+    """
+    Генерирует уникальный session_id аналогично боевому коду (uuid4().hex)
+    """
+    return uuid.uuid4().hex
+
+def make_callback_data(action: str, post_id: str, session_id: str = None) -> str:
+    """
+    Генерирует callback_data для confirm/cancel с session_id по боевому формату
+    """
+    if session_id is None:
+        session_id = make_session_id()
+    return f"{action}_{post_id}_{session_id}"
+
 @pytest.mark.asyncio
 async def test_edit_text_flow(bot_instance, mock_context):
     # Создаем пост-контекст вручную (эмулируем появление поста)
@@ -72,7 +88,8 @@ async def test_edit_text_flow(bot_instance, mock_context):
     assert bot_instance.state_manager.get_post_context(post_id).temp_text == "Новый текст"
 
     # 3. Модератор подтверждает сохранение
-    update3 = make_mock_update(callback_data="confirm_edit_text_post_1")
+    session_id = make_session_id()
+    update3 = make_mock_update(callback_data=make_callback_data("confirm_edit_text", post_id, session_id))
     await bot_instance.handle_callback(update3, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -109,7 +126,8 @@ async def test_media_add_flow(bot_instance, mock_context):
     assert bot_instance.state_manager.get_post_context(post_id).state == BotState.EDIT_MEDIA_ADD_CONFIRM
 
     # 3. Модератор подтверждает добавление
-    update3 = make_mock_update(callback_data="confirm_add_media_post_2")
+    session_id = make_session_id()
+    update3 = make_mock_update(callback_data=make_callback_data("confirm_add_media", post_id, session_id))
     await bot_instance.handle_callback(update3, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -184,7 +202,8 @@ async def test_media_remove_flow_real_files(bot_instance, mock_context):
     assert bot_instance.state_manager.get_post_context(post_id).state == BotState.EDIT_MEDIA_REMOVE_CONFIRM
 
     # 3. Модератор подтверждает удаление
-    update3 = make_mock_update(callback_data="confirm_remove_media_post_20250512_044632")
+    session_id = make_session_id()
+    update3 = make_mock_update(callback_data=make_callback_data("confirm_remove_media", post_id, session_id))
     await bot_instance.handle_callback(update3, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -214,7 +233,8 @@ async def test_publish_flow_real_files(bot_instance, mock_context):
     assert bot_instance.state_manager.get_post_context(post_id).state == BotState.CONFIRM_PUBLISH
 
     # 2. Модератор подтверждает публикацию
-    update2 = make_mock_update(callback_data="confirm_publish_post_20250512_044632")
+    session_id = make_session_id()
+    update2 = make_mock_update(callback_data=make_callback_data("confirm_publish_post", post_id, session_id))
     await bot_instance.handle_callback(update2, mock_context)
     # После публикации контекст должен быть очищен (None)
     assert bot_instance.state_manager.get_post_context(post_id) is None 
@@ -241,7 +261,8 @@ async def test_quick_delete_flow_real_files(bot_instance, mock_context):
     update1 = make_mock_update(callback_data="quick_delete_post_20250512_044632")
     await bot_instance.handle_callback(update1, mock_context)
     # После confirm_quick_delete контекст должен быть очищен
-    update2 = make_mock_update(callback_data="confirm_quick_delete_post_20250512_044632")
+    session_id = make_session_id()
+    update2 = make_mock_update(callback_data=make_callback_data("confirm_quick_delete_post", post_id, session_id))
     await bot_instance.handle_callback(update2, mock_context)
     assert bot_instance.state_manager.get_post_context(post_id) is None
 
@@ -262,7 +283,8 @@ async def test_fsm_confirm_edit_text_state_sync(bot_instance, mock_context):
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
     # Мокаем update и callback
-    update = make_mock_update(callback_data="confirm_edit_text_post_999")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None, "PostContext должен существовать после confirm_edit_text"
@@ -285,7 +307,8 @@ async def test_fsm_confirm_add_media_state_sync(bot_instance, mock_context):
         temp_media=["mock_photo_id"]
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(callback_data="confirm_add_media_post_888")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_add_media_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None, "PostContext должен существовать после confirm_add_media"
@@ -308,7 +331,8 @@ async def test_fsm_confirm_remove_media_state_sync(bot_instance, mock_context):
         media_to_remove=[1]
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(callback_data="confirm_remove_media_post_777")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_remove_media_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None, "PostContext должен существовать после confirm_remove_media"
@@ -330,7 +354,8 @@ async def test_fsm_confirm_publish_state_sync(bot_instance, mock_context):
         original_media=["mock_photo_id1"]
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(callback_data="confirm_publish_post_666")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_publish_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is None, "PostContext должен быть очищен после confirm_publish"
@@ -351,7 +376,8 @@ async def test_fsm_confirm_delete_state_sync(bot_instance, mock_context):
         original_media=["mock_photo_id1"]
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(callback_data="confirm_delete_post_555")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_delete_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is None, "PostContext должен быть очищен после confirm_delete"
@@ -372,7 +398,8 @@ async def test_fsm_confirm_quick_delete_state_sync(bot_instance, mock_context):
         original_media=["mock_photo_id1"]
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(callback_data="confirm_quick_delete_post_444")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_quick_delete_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is None, "PostContext должен быть очищен после confirm_quick_delete"
@@ -393,7 +420,8 @@ async def test_fsm_cancel_edit_text_state_sync(bot_instance, mock_context):
         original_media=[]
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(callback_data="cancel_edit_text_post_cancel_1")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("cancel_edit_text_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -416,7 +444,8 @@ async def test_fsm_cancel_add_media_state_sync(bot_instance, mock_context):
         temp_media=["mock_photo_id"]
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(callback_data="cancel_add_media_post_cancel_2")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("cancel_add_media_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -439,7 +468,8 @@ async def test_fsm_cancel_remove_media_state_sync(bot_instance, mock_context):
         media_to_remove=[1]
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(callback_data="cancel_remove_media_post_cancel_3")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("cancel_remove_media_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -461,7 +491,8 @@ async def test_fsm_cancel_publish_state_sync(bot_instance, mock_context):
         original_media=["mock_photo_id1"]
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(callback_data="cancel_publish_post_cancel_4")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("cancel_publish_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -483,7 +514,8 @@ async def test_fsm_cancel_delete_state_sync(bot_instance, mock_context):
         original_media=["mock_photo_id1"]
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(callback_data="cancel_delete_post_cancel_5")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("cancel_delete_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -505,7 +537,8 @@ async def test_fsm_cancel_quick_delete_state_sync(bot_instance, mock_context):
         original_media=["mock_photo_id1"]
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(callback_data="cancel_quick_delete_post_cancel_6")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("cancel_quick_delete_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -516,7 +549,8 @@ async def test_fsm_confirm_nonexistent_post(bot_instance, mock_context):
     """
     confirm_edit_text для несуществующего post_id не должен падать и не должен создавать контекст.
     """
-    update = make_mock_update(callback_data="confirm_edit_text_post_nonexistent")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_edit_text_post", "post_nonexistent", session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context("post_nonexistent")
     assert ctx is None
@@ -526,7 +560,8 @@ async def test_fsm_cancel_nonexistent_post(bot_instance, mock_context):
     """
     cancel_edit_text для несуществующего post_id не должен падать и не должен создавать контекст.
     """
-    update = make_mock_update(callback_data="cancel_edit_text_post_nonexistent")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("cancel_edit_text_post", "post_nonexistent", session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context("post_nonexistent")
     assert ctx is None
@@ -548,7 +583,8 @@ async def test_fsm_confirm_edit_text_no_temp_text(bot_instance, mock_context):
         temp_text=None
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(callback_data="confirm_edit_text_post_edge_1")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -572,7 +608,8 @@ async def test_fsm_double_confirm_edit_text(bot_instance, mock_context):
         temp_text="new text"
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(callback_data="confirm_edit_text_post_edge_2")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     # Повторный confirm
     await bot_instance.handle_callback(update, mock_context)
@@ -597,7 +634,8 @@ async def test_fsm_confirm_edit_text_invalid_state(bot_instance, mock_context):
         temp_text="new text"
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(callback_data="confirm_edit_text_post_edge_3")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -621,7 +659,8 @@ async def test_fsm_confirm_edit_text_foreign_user(bot_instance, mock_context):
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
     # Мокаем update с другим user_id
-    update = make_mock_update(user_id=999, callback_data="confirm_edit_text_post_edge_4")
+    session_id = make_session_id()
+    update = make_mock_update(user_id=999, callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -648,7 +687,8 @@ async def test_fsm_confirm_after_storage_clear(bot_instance, mock_context):
     bot_instance.state_manager.set_post_context(post_id, post_context)
     # Очищаем storage (мокаем AsyncFileManager.read чтобы вернуть пустой dict)
     with patch("src.bot.storage.AsyncFileManager.read", return_value={}):
-        update = make_mock_update(callback_data="confirm_edit_text_post_edge_5")
+        session_id = make_session_id()
+        update = make_mock_update(callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
         await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -673,7 +713,8 @@ async def test_fsm_confirm_edit_text_telegram_error(bot_instance, mock_context):
     bot_instance.state_manager.set_post_context(post_id, post_context)
     # Мокаем edit_message_caption чтобы выбрасывал исключение
     mock_context.bot.edit_message_caption.side_effect = Exception("Telegram API error")
-    update = make_mock_update(callback_data="confirm_edit_text_post_edge_6")
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -702,7 +743,8 @@ async def test_fsm_confirm_edit_text_filesystem_error(bot_instance, mock_context
     mock_storage.read = AsyncMock(return_value={post_id: {"text": "old text"}})
     mock_storage.write = AsyncMock(side_effect=Exception("FS error"))
     with patch("src.bot.storage.AsyncFileManager.__aenter__", new=AsyncMock(return_value=mock_storage)):
-        update = make_mock_update(callback_data="confirm_edit_text_post_edge_7")
+        session_id = make_session_id()
+        update = make_mock_update(callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
         await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -726,7 +768,8 @@ async def test_fsm_confirm_edit_text_broken_storage(bot_instance, mock_context):
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
     with patch("src.bot.storage.AsyncFileManager.read", side_effect=Exception("broken storage")):
-        update = make_mock_update(callback_data="confirm_edit_text_post_edge_8")
+        session_id = make_session_id()
+        update = make_mock_update(callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
         await bot_instance.handle_callback(update, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
     assert ctx is not None
@@ -749,8 +792,9 @@ async def test_fsm_race_condition_double_confirm(bot_instance, mock_context):
         temp_text="new text"
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update1 = make_mock_update(user_id=123, callback_data="confirm_edit_text_post_race_1")
-    update2 = make_mock_update(user_id=999, callback_data="confirm_edit_text_post_race_1")
+    session_id = make_session_id()
+    update1 = make_mock_update(user_id=123, callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
+    update2 = make_mock_update(user_id=999, callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
     await bot_instance.handle_callback(update1, mock_context)
     await bot_instance.handle_callback(update2, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
@@ -774,8 +818,9 @@ async def test_fsm_race_condition_confirm_cancel(bot_instance, mock_context):
         temp_text="new text"
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update_confirm = make_mock_update(user_id=123, callback_data="confirm_edit_text_post_race_2")
-    update_cancel = make_mock_update(user_id=123, callback_data="cancel_edit_text_post_race_2")
+    session_id = make_session_id()
+    update_confirm = make_mock_update(user_id=123, callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
+    update_cancel = make_mock_update(user_id=123, callback_data=make_callback_data("cancel_edit_text_post", post_id, session_id))
     await bot_instance.handle_callback(update_confirm, mock_context)
     await bot_instance.handle_callback(update_cancel, mock_context)
     ctx = bot_instance.state_manager.get_post_context(post_id)
@@ -799,7 +844,8 @@ async def test_fsm_confirm_button_disappears(bot_instance, mock_context):
         temp_text="new text"
     )
     bot_instance.state_manager.set_post_context(post_id, post_context)
-    update = make_mock_update(user_id=123, callback_data="confirm_edit_text_post_race_3")
+    session_id = make_session_id()
+    update = make_mock_update(user_id=123, callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
     await bot_instance.handle_callback(update, mock_context)
     # Проверяем, что edit_message_reply_markup был вызван с reply_markup=None
     called = False
@@ -808,3 +854,120 @@ async def test_fsm_confirm_button_disappears(bot_instance, mock_context):
         if kwargs.get("reply_markup") is None:
             called = True
     assert called, "edit_message_reply_markup не вызван с reply_markup=None (кнопки не исчезли)" 
+
+@pytest.mark.asyncio
+async def test_fsm_repeat_confirm_cancel_notification(bot_instance, mock_context, caplog):
+    """
+    Повторный confirm/cancel должен отправлять уведомление пользователю и логироваться как info.
+    """
+    post_id = "post_repeat_1"
+    post_context = PostContext(
+        post_id=post_id,
+        chat_id=456,
+        message_id=111,
+        state=BotState.EDIT_MENU,  # не *_CONFIRM
+        user_id=123,
+        original_text="old text",
+        original_media=[]
+    )
+    bot_instance.state_manager.set_post_context(post_id, post_context)
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
+    with caplog.at_level("INFO"):
+        await bot_instance.handle_callback(update, mock_context)
+    assert "Повторный confirm/cancel" in caplog.text
+
+@pytest.mark.asyncio
+async def test_fsm_keyboard_remove_badrequest_warning(bot_instance, mock_context, caplog):
+    """
+    Ошибка удаления клавиатуры с текстом 'message content and reply markup are exactly the same' логируется как warning.
+    """
+    post_id = "post_kb_1"
+    post_context = PostContext(
+        post_id=post_id,
+        chat_id=456,
+        message_id=112,
+        state=BotState.EDIT_TEXT_CONFIRM,
+        user_id=123,
+        original_text="text",
+        original_media=[]
+    )
+    bot_instance.state_manager.set_post_context(post_id, post_context)
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
+    with patch.object(mock_context.bot, "edit_message_reply_markup", AsyncMock(side_effect=telegram.error.BadRequest("message content and reply markup are exactly the same"))):
+        with caplog.at_level("WARNING"):
+            await bot_instance.handle_callback(update, mock_context)
+        assert "Клавиатура уже удалена" in caplog.text
+
+@pytest.mark.asyncio
+async def test_fsm_flood_control_retry(bot_instance, mock_context, caplog):
+    """
+    Flood control (RetryAfter) вызывает повторную попытку.
+    """
+    post_id = "post_flood_1"
+    post_context = PostContext(
+        post_id=post_id,
+        chat_id=456,
+        message_id=113,
+        state=BotState.EDIT_TEXT_CONFIRM,
+        user_id=123,
+        original_text="text",
+        original_media=[]
+    )
+    bot_instance.state_manager.set_post_context(post_id, post_context)
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
+    # Flood control: первый вызов RetryAfter, второй успешный
+    async def fake_edit_message_reply_markup(*args, **kwargs):
+        if not hasattr(fake_edit_message_reply_markup, "called"):
+            fake_edit_message_reply_markup.called = True
+            raise telegram.error.RetryAfter(1)
+        return None
+    with patch.object(mock_context.bot, "edit_message_reply_markup", AsyncMock(side_effect=fake_edit_message_reply_markup)):
+        await bot_instance.handle_callback(update, mock_context)
+    assert "Flood control: повтор через" in caplog.text
+
+@pytest.mark.asyncio
+async def test_fsm_keyboard_remove_success(bot_instance, mock_context):
+    """
+    Клавиатура успешно удаляется после confirm/cancel.
+    """
+    post_id = "post_kb_2"
+    post_context = PostContext(
+        post_id=post_id,
+        chat_id=456,
+        message_id=114,
+        state=BotState.EDIT_TEXT_CONFIRM,
+        user_id=123,
+        original_text="text",
+        original_media=[]
+    )
+    bot_instance.state_manager.set_post_context(post_id, post_context)
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
+    with patch.object(mock_context.bot, "edit_message_reply_markup", AsyncMock(return_value=None)) as mock_edit:
+        await bot_instance.handle_callback(update, mock_context)
+        mock_edit.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_fsm_repeat_confirm_cancel_user_notification(bot_instance, mock_context):
+    """
+    Повторный confirm/cancel отправляет пользователю уведомление через query.answer.
+    """
+    post_id = "post_repeat_2"
+    post_context = PostContext(
+        post_id=post_id,
+        chat_id=456,
+        message_id=115,
+        state=BotState.EDIT_MENU,  # не *_CONFIRM
+        user_id=123,
+        original_text="old text",
+        original_media=[]
+    )
+    bot_instance.state_manager.set_post_context(post_id, post_context)
+    session_id = make_session_id()
+    update = make_mock_update(callback_data=make_callback_data("confirm_edit_text_post", post_id, session_id))
+    with patch.object(update.callback_query, "answer", AsyncMock()) as mock_answer:
+        await bot_instance.handle_callback(update, mock_context)
+        mock_answer.assert_called_with("Действие уже выполнено или неактуально", show_alert=True) 
