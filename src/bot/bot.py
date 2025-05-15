@@ -37,6 +37,7 @@ logger = setup_logger("bot")
 
 # Путь к файлу storage
 STORAGE_PATH = "storage.json"
+SAVED_DIR = settings.SAVE_DIR
 
 media_group_temp = collections.defaultdict(dict)  # {user_id: {media_group_id: [PhotoSize, ...]}}
 media_group_tasks = collections.defaultdict(dict)  # {user_id: {media_group_id: asyncio.Task}}
@@ -362,7 +363,7 @@ class Bot:
             self.state_manager.set_post_context(post_id, post_context)
             try:
                 # Получаем путь к папке поста
-                post_dir = os.path.join("saved", post_id)
+                post_dir = os.path.join(SAVED_DIR, post_id)
                 logger.info(f"Путь к папке поста: {post_dir}")
                 if not os.path.exists(post_dir):
                     logger.error(f"Папка поста не найдена: {post_dir}")
@@ -513,7 +514,7 @@ class Bot:
                 self.state_manager.set_post_context(post_id, post_context)
                 return
 
-            post_dir = os.path.join("saved", post_id)
+            post_dir = os.path.join(SAVED_DIR, post_id)
             photos = [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")]
             photos.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
             
@@ -627,7 +628,7 @@ class Bot:
         # Сохраняем ID пользовательского сообщения (фото)
         post_context.user_message_ids.append(update.message.message_id)
         self.state_manager.set_post_context(post_id, post_context)
-        post_dir = os.path.join("saved", post_id)
+        post_dir = os.path.join(SAVED_DIR, post_id)
         if not update.message.photo:
             await update.message.reply_text("❌ Пожалуйста, отправьте фото.")
             return
@@ -660,7 +661,7 @@ class Bot:
         """
         logger.info(f"=== finalize_media_add_album: старт для post_id={post_context.post_id}, media_group_id={media_group_id} ===")
         post_id = post_context.post_id
-        post_dir = os.path.join("saved", post_id)
+        post_dir = os.path.join(SAVED_DIR, post_id)
         album_photos = media_group_temp[user_id][media_group_id]
         old_photos = [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")]
         old_photos.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
@@ -721,7 +722,7 @@ class Bot:
         logger.info(f"=== finalize_media_add_single: старт для post_id={post_context.post_id} ===")
         user_id = update.message.from_user.id
         post_id = post_context.post_id
-        post_dir = os.path.join("saved", post_id)
+        post_dir = os.path.join(SAVED_DIR, post_id)
         old_photos = [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")]
         old_photos.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
         old_photo_paths = [os.path.join(post_dir, f) for f in old_photos]
@@ -783,7 +784,7 @@ class Bot:
             logger.info("Starting periodic post check")
 
             # Путь к папке с постами
-            saved_dir = "saved"
+            saved_dir = SAVED_DIR
             if not os.path.exists(saved_dir):
                 logger.error(f"Saved directory not found: {saved_dir}")
                 return
@@ -845,7 +846,7 @@ class Bot:
             logger.info(f"User {user_id} is a moderator, checking posts")
 
             # Путь к папке с постами
-            saved_dir = "saved"
+            saved_dir = SAVED_DIR
             if not os.path.exists(saved_dir):
                 logger.error(f"Saved directory not found: {saved_dir}")
                 await update.message.reply_text("❌ Папка saved не найдена")
@@ -1021,7 +1022,7 @@ class Bot:
             except Exception as e:
                 logger.error(f"Ошибка при удалении сообщения с клавиатурой: {e}", exc_info=True)
             # Удаляем файлы поста и storage/context (оставляю как было)
-            post_dir = os.path.join("saved", post_id)
+            post_dir = os.path.join(SAVED_DIR, post_id)
             logger.info(f"Путь к директории поста: {post_dir}")
             logger.info(f"Директория существует: {os.path.exists(post_dir)}")
             if os.path.exists(post_dir):
@@ -1221,14 +1222,30 @@ class Bot:
             
             # Получаем текст поста (оригинальный или отредактированный)
             post_text = post_context.temp_text if post_context.temp_text else post_context.original_text
+            post_text += "\n\n@pedalgaza_tg"
             logger.info(f"Текст поста для публикации: {post_text[:100]}...")
-            
+
+
             # Получаем путь к папке поста
-            post_dir = os.path.join("saved", post_id)
+            post_dir = os.path.join(SAVED_DIR, post_id)
             if not os.path.exists(post_dir):
                 logger.error(f"Папка поста не найдена: {post_dir}")
                 return False
-            
+            # Читаем текст закрытого поста
+            close_text = post_text
+            text_close_file = os.path.join(post_dir, "text_close.txt")
+            if os.path.exists(text_close_file):
+                with open(text_close_file, 'r', encoding='utf-8') as f:
+                    close_text = f.read()
+            else:
+                logger.error(f"No close_text.txt file found in {post_dir}")
+            source_file = os.path.join(post_dir, "source.txt")
+            if os.path.exists(source_file):
+                with open(source_file, 'r', encoding='utf-8') as f:
+                    close_text += "\n\n" + f.read()
+            else:
+                logger.error(f"No source.txt file found in {post_dir}")                
+
             # Получаем список фотографий
             photos = sorted(
                 [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")],
@@ -1243,10 +1260,15 @@ class Bot:
             
             # Формируем медиа-группу
             media_group = []
+            private_first_media_photo = None
             for i, path in enumerate(photo_paths):
                 try:
                     # Добавляем caption только к первой фотографии
                     if i == 0:
+                        private_first_media_photo = InputMediaPhoto(
+                            media=open(path, 'rb'),
+                            caption=close_text
+                        )
                         media_group.append(
                             InputMediaPhoto(
                                 media=open(path, 'rb'),
@@ -1262,7 +1284,6 @@ class Bot:
                 except Exception as e:
                     logger.error(f"Ошибка при добавлении фото {path}: {e}", exc_info=True)
                     return False
-            
             # Публикуем в открытый канал
             logger.info("Публикация в открытый канал")
             try:
@@ -1281,6 +1302,9 @@ class Bot:
             
             # Публикуем в закрытый канал
             logger.info("Публикация в закрытый канал")
+
+            media_group[0] = private_first_media_photo
+
             try:
                 await context.bot.send_media_group(
                     chat_id=settings.PRIVATE_CHANNEL_ID,
@@ -1365,7 +1389,7 @@ class Bot:
                 except Exception as e:
                     logger.error(f"[delete_post_and_messages_by_id] Ошибка при удалении пользовательского сообщения {message_id}: {e}")
             # Удаляем директорию поста и файлы
-            post_dir = os.path.join("saved", post_id)
+            post_dir = os.path.join(SAVED_DIR, post_id)
             if os.path.exists(post_dir):
                 logger.info(f"Удаление файлов поста из директории: {post_dir}")
                 try:
@@ -1600,7 +1624,7 @@ class Bot:
         logger.info(f"Смена состояния: {old_state} -> {post_context.state} для поста {post_id}")
         
         # Считаем, сколько фото уже есть
-        post_dir = os.path.join("saved", post_id)
+        post_dir = os.path.join(SAVED_DIR, post_id)
         old_photos = [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")]
         max_to_add = 10 - len(old_photos)
         logger.info(f"Текущее количество фото: {len(old_photos)}")
@@ -1642,7 +1666,7 @@ class Bot:
         logger.info(f"Смена состояния: {old_state} -> {post_context.state} для поста {post_id}")
         
         # Получаем список фото
-        post_dir = os.path.join("saved", post_id)
+        post_dir = os.path.join(SAVED_DIR, post_id)
         photos = [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")]
         photos.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
         

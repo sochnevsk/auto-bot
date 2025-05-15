@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     
     # ID модератора
     MODERATOR_IDS: int = int(os.getenv("MODERATOR_IDS", "0"))
+
+    # ID модератора
+    SAVE_DIR: str = os.getenv('SAVE_DIR', os.path.join(os.getcwd(), 'saved'))
     
     # Настройки логирования
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "DEBUG")
