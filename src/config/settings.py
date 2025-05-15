@@ -15,10 +15,10 @@ class Settings(BaseSettings):
     MODERATOR_GROUP_ID: int = int(os.getenv("MODERATOR_GROUP_ID", "0"))
     
     # ID открытого канала
-    OPEN_CHANNEL_ID: int = int(os.getenv("OPEN_CHANNEL_ID", "0"))
+    PUBLIC_CHANNEL_ID: int = int(os.getenv("PUBLIC_CHANNEL_ID", "0"))
     
     # ID закрытого канала
-    CLOSED_CHANNEL_ID: int = int(os.getenv("CLOSED_CHANNEL_ID", "0"))
+    PRIVATE_CHANNEL_ID: int = int(os.getenv("PRIVATE_CHANNEL_ID", "0"))
     
     # ID модератора
     MODERATOR_IDS: int = int(os.getenv("MODERATOR_IDS", "0"))

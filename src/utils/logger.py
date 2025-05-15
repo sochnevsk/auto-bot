@@ -18,13 +18,23 @@ def setup_logger(name: str) -> logging.Logger:
     """
     # Создаем логгер
     logger = logging.getLogger(name)
+    
+    # Если у логгера уже есть обработчики, возвращаем его
+    if logger.handlers:
+        return logger
+        
     logger.setLevel(settings.LOG_LEVEL)
     
     # Создаем форматтер
     formatter = logging.Formatter(settings.LOG_FORMAT)
     
+    # Создаем директорию для логов, если её нет
+    os.makedirs(settings.LOG_DIR, exist_ok=True)
+    
     # Создаем обработчик для файла
-    log_file = os.path.join(settings.LOG_DIR, f"{name}.log")
+    # Используем только имя модуля без пути
+    module_name = name.split('.')[-1]
+    log_file = os.path.join(settings.LOG_DIR, f"{module_name}.log")
     file_handler = RotatingFileHandler(
         log_file,
         maxBytes=10*1024*1024,  # 10MB
