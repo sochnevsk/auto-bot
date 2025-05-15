@@ -508,7 +508,9 @@ class Bot:
             try:
                 numbers = list(map(int, text.split()))
             except Exception:
-                await update.message.reply_text("❌ Ошибка: введите номера фото через пробел, например: 1 3 4")
+                error_msg = await update.message.reply_text("❌ Ошибка: введите номера фото через пробел, например: 1 3 4")
+                post_context.service_messages.append(error_msg.message_id)
+                self.state_manager.set_post_context(post_id, post_context)
                 return
 
             post_dir = os.path.join("saved", post_id)
@@ -516,7 +518,9 @@ class Bot:
             photos.sort(key=lambda x: int(x.split('_')[1].split('.')[0]))
             
             if not photos:
-                await update.message.reply_text("В этом посте нет фото для удаления.")
+                no_photos_msg = await update.message.reply_text("В этом посте нет фото для удаления.")
+                post_context.service_messages.append(no_photos_msg.message_id)
+                self.state_manager.set_post_context(post_id, post_context)
                 return
 
             # Проверяем валидность номеров
@@ -526,7 +530,9 @@ class Bot:
                     to_delete.add(n-1)
             
             if not to_delete:
-                await update.message.reply_text("❌ Ошибка: нет корректных номеров для удаления.")
+                invalid_msg = await update.message.reply_text("❌ Ошибка: нет корректных номеров для удаления.")
+                post_context.service_messages.append(invalid_msg.message_id)
+                self.state_manager.set_post_context(post_id, post_context)
                 return
 
             # Удаляем выбранные фото
@@ -591,7 +597,10 @@ class Bot:
             post_context.state = BotState.MODERATE_MENU
             self.state_manager.set_post_context(post_id, post_context)
 
-            await update.message.reply_text(f"✅ Фото удалены: {' '.join(deleted) if deleted else 'ничего не удалено'}")
+            # Отправляем сообщение об успешном удалении
+            success_msg = await update.message.reply_text(f"✅ Фото удалены: {' '.join(deleted) if deleted else 'ничего не удалено'}")
+            post_context.service_messages.append(success_msg.message_id)
+            self.state_manager.set_post_context(post_id, post_context)
             logger.info(f"Фото удалены из поста {post_id}: {deleted}")
             logger.info("=== Завершение обработки сообщения ===")
             return
