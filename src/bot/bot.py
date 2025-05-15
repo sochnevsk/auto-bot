@@ -421,6 +421,19 @@ class Bot:
                     except Exception as e:
                         logger.error(f"Ошибка при удалении старого сообщения {message_id}: {e}")
                 
+                # Удаляем все служебные сообщения
+                logger.info("Удаление служебных сообщений")
+                for message_id in post_context.service_messages:
+                    try:
+                        await context.bot.delete_message(
+                            chat_id=post_context.chat_id,
+                            message_id=message_id
+                        )
+                        logger.info(f"Удалено служебное сообщение с ID: {message_id}")
+                    except Exception as e:
+                        logger.error(f"Ошибка при удалении служебного сообщения {message_id}: {e}")
+                post_context.service_messages = []  # Очищаем список служебных сообщений
+                
                 # Обновляем контекст поста с новыми ID
                 message_ids = [msg.message_id for msg in messages]
                 logger.info(f"Получены новые ID сообщений: {message_ids}")
@@ -450,8 +463,11 @@ class Bot:
                     reply_markup=get_moderate_keyboard(post_id)
                 )
                 logger.info("Клавиатура отправлена")
+                # Сохраняем ID сообщения с клавиатурой в service_messages
+                post_context.service_messages.append(keyboard_message.message_id)
+                self.state_manager.set_post_context(post_id, post_context)
                 
-                # Добавляем ID сообщения с клавиатурой
+                # Добавляем ID сообщения с клавиатурой в список сообщений
                 message_ids.append(keyboard_message.message_id)
                 logger.info(f"Обновленный список ID сообщений: {message_ids}")
                 
@@ -1201,10 +1217,13 @@ class Bot:
         logger.info(f"Состояние поста изменено: {old_state} -> {post_context.state}")
         
         # Обновляем сообщение с новой клавиатурой
-        await query.message.edit_text(
+        msg = await query.message.edit_text(
             text="Выберите, что хотите отредактировать:",
             reply_markup=get_edit_keyboard(post_id)
         )
+        # Сохраняем ID сообщения с клавиатурой в service_messages
+        post_context.service_messages.append(msg.message_id)
+        self.state_manager.set_post_context(post_id, post_context)
         
         logger.info(f"Пост {post_id} переведен в состояние {BotState.EDIT_MENU}")
         logger.info("=== Завершение обработки callback-запроса на редактирование ===")
@@ -1242,13 +1261,16 @@ class Bot:
         self.state_manager.set_post_context(post_id, post_context)
         logger.info(f"Состояние поста изменено: {old_state} -> {post_context.state}")
         
-        # Отправляем служебное сообщение
-        await context.bot.send_message(
+        # Отправляем служебное сообщение и сохраняем его ID
+        message = await context.bot.send_message(
             chat_id=post_context.chat_id,
             text="Введите новый текст для поста:"
         )
-        logger.info("Отправлено сообщение с запросом нового текста")
+        post_context.service_messages.append(message.message_id)
+        self.state_manager.set_post_context(post_id, post_context)
+        logger.info(f"ID служебного сообщения {message.message_id} сохранен")
         
+        logger.info("Отправлено сообщение с запросом нового текста")
         logger.info(f"Пост {post_id} переведен в состояние {BotState.EDIT_TEXT_WAIT}")
         logger.info("=== Завершение обработки callback-запроса на редактирование текста ===")
 
