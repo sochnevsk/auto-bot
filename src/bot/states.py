@@ -34,6 +34,7 @@ class PostContext:
     temp_media: Optional[List[int]] = None
     media_to_remove: Optional[List[int]] = None
     service_messages: List[int] = field(default_factory=list)  # ID служебных сообщений
+    user_message_ids: List[int] = field(default_factory=list)  # ID пользовательских сообщений
 
 
 class StateManager:
