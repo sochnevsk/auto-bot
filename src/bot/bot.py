@@ -81,6 +81,13 @@ class Bot:
         ))
         logger.debug("Added moderate callback handler")
         
+        # Обработчик callback-запросов для публикации
+        self.application.add_handler(CallbackQueryHandler(
+            self.handle_publish_callback,
+            pattern=r"^publish_"
+        ))
+        logger.debug("Added publish callback handler")
+        
         # Обработчик текстовых сообщений
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         logger.debug("Added text message handler")
@@ -147,7 +154,7 @@ class Bot:
                 logger.info(f"Source info: {source_info}")
 
             # Формируем полный текст поста с информацией об источнике
-            full_text = f"{post_text}\n\n{source_info}"
+            full_text = f"{post_text}"
 
             # Получаем список фотографий
             photos = sorted(
@@ -195,7 +202,7 @@ class Bot:
                 logger.info("Sending keyboard with actions")
                 keyboard_message = await context.bot.send_message(
                     chat_id=settings.MODERATOR_GROUP_ID,
-                    text=f"Выберите действие для поста {post_id}:",
+                    text=f"Выберите действие для поста \n{source_info}:",
                     reply_markup=get_post_keyboard(post_id),
                     read_timeout=30,
                     write_timeout=30,
@@ -754,6 +761,217 @@ class Bot:
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text="❌ Произошла ошибка при обработке модерации"
+            )
+            raise
+
+    async def publish_post(self, post_id: str, context: ContextTypes.DEFAULT_TYPE) -> bool:
+        """
+        Публикация поста в каналы.
+        
+        Args:
+            post_id: ID поста
+            context: Контекст бота
+            
+        Returns:
+            bool: True если публикация успешна, False в противном случае
+        """
+        logger.info(f"=== Начало публикации поста {post_id} ===")
+        
+        try:
+            # Получаем контекст поста
+            post_context = self.state_manager.get_post_context(post_id)
+            logger.info(f"Контекст поста из памяти: {post_context}")
+            
+            if not post_context:
+                logger.info(f"Контекст поста {post_id} не найден в памяти, пытаемся восстановить из storage")
+                async with AsyncFileManager(STORAGE_PATH) as storage:
+                    storage_data = await storage.read()
+                    logger.info(f"Данные из storage: {storage_data}")
+                    
+                    if post_id in storage_data:
+                        post_info = storage_data[post_id]
+                        logger.info(f"Найдена информация о посте: {post_info}")
+                        
+                        post_context = PostContext(
+                            post_id=post_id,
+                            chat_id=post_info['chat_id'],
+                            message_id=post_info['message_ids'][0],
+                            state=BotState.MODERATE_MENU,
+                            original_text=post_info['text'],
+                            original_media=post_info['message_ids'][:-1]
+                        )
+                        self.state_manager.set_post_context(post_id, post_context)
+                        logger.info(f"Контекст поста {post_id} восстановлен из storage: {post_context}")
+                    else:
+                        logger.error(f"Пост {post_id} не найден в storage")
+                        return False
+            
+            # Получаем текст поста (оригинальный или отредактированный)
+            post_text = post_context.temp_text if post_context.temp_text else post_context.original_text
+            logger.info(f"Текст поста для публикации: {post_text[:100]}...")
+            
+            # Получаем путь к папке поста
+            post_dir = os.path.join("saved", post_id)
+            if not os.path.exists(post_dir):
+                logger.error(f"Папка поста не найдена: {post_dir}")
+                return False
+            
+            # Получаем список фотографий
+            photos = sorted(
+                [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")],
+                key=lambda x: int(x.split("_")[1].split(".")[0])
+            )
+            if not photos:
+                logger.error(f"Нет фотографий в папке {post_dir}")
+                return False
+            
+            photo_paths = [os.path.join(post_dir, photo) for photo in photos]
+            logger.info(f"Найдено {len(photos)} фотографий: {photo_paths}")
+            
+            # Формируем медиа-группу
+            media_group = []
+            for i, path in enumerate(photo_paths):
+                try:
+                    # Добавляем caption только к первой фотографии
+                    if i == 0:
+                        media_group.append(
+                            InputMediaPhoto(
+                                media=open(path, 'rb'),
+                                caption=post_text
+                            )
+                        )
+                    else:
+                        media_group.append(
+                            InputMediaPhoto(
+                                media=open(path, 'rb')
+                            )
+                        )
+                except Exception as e:
+                    logger.error(f"Ошибка при добавлении фото {path}: {e}", exc_info=True)
+                    return False
+            
+            # Публикуем в открытый канал
+            logger.info("Публикация в открытый канал")
+            try:
+                await context.bot.send_media_group(
+                    chat_id=settings.PUBLIC_CHANNEL_ID,
+                    media=media_group,
+                    read_timeout=30,
+                    write_timeout=30,
+                    connect_timeout=30,
+                    pool_timeout=30
+                )
+                logger.info("Пост успешно опубликован в открытый канал")
+            except Exception as e:
+                logger.error(f"Ошибка при публикации в открытый канал: {e}", exc_info=True)
+                return False
+            
+            # Публикуем в закрытый канал
+            logger.info("Публикация в закрытый канал")
+            try:
+                await context.bot.send_media_group(
+                    chat_id=settings.PRIVATE_CHANNEL_ID,
+                    media=media_group,
+                    read_timeout=30,
+                    write_timeout=30,
+                    connect_timeout=30,
+                    pool_timeout=30
+                )
+                logger.info("Пост успешно опубликован в закрытый канал")
+            except Exception as e:
+                logger.error(f"Ошибка при публикации в закрытый канал: {e}", exc_info=True)
+                return False
+            
+            # Обновляем статус поста в storage
+            logger.info("Обновление статуса поста в storage")
+            async with AsyncFileManager(STORAGE_PATH) as storage:
+                data = await storage.read()
+                if post_id in data:
+                    data[post_id]['status'] = 'published'
+                    await storage.write(data)
+                    logger.info(f"Статус поста {post_id} обновлен на 'published'")
+                else:
+                    logger.warning(f"Пост {post_id} не найден в storage для обновления статуса")
+            
+            logger.info(f"=== Завершение публикации поста {post_id} ===")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Ошибка при публикации поста {post_id}: {e}", exc_info=True)
+            return False
+
+    async def handle_publish_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        Обработчик callback-запросов для публикации поста.
+        
+        Args:
+            update: Объект обновления
+            context: Контекст бота
+        """
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("=== Начало обработки callback-запроса на публикацию ===")
+        logger.info(f"Callback query: {query.data}")
+        logger.info(f"Message ID: {query.message.message_id}")
+        logger.info(f"Chat ID: {query.message.chat_id}")
+        
+        try:
+            # Получаем post_id из callback_data
+            callback_data = query.data
+            logger.info(f"Получен callback_data: {callback_data}")
+            
+            # Проверяем формат callback_data
+            if not callback_data.startswith("publish_post_"):
+                logger.error(f"Неверный формат callback_data: {callback_data}")
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text="❌ Неверный формат данных"
+                )
+                return
+                
+            post_id = callback_data.replace("publish_post_", "")
+            logger.info(f"Извлечен post_id: {post_id}")
+            
+            if not post_id:
+                logger.error("post_id пустой")
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text="❌ Не удалось определить ID поста"
+                )
+                return
+            
+            # Публикуем пост
+            if await self.publish_post(post_id, context):
+                # Удаляем сообщение с клавиатурой
+                try:
+                    await query.message.delete()
+                    logger.info(f"Удалено сообщение с ID: {query.message.message_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка при удалении сообщения с клавиатурой: {e}", exc_info=True)
+                
+                # Отправляем уведомление об успешной публикации
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text="✅ Пост успешно опубликован в каналы"
+                )
+                
+                # Очищаем контекст поста
+                self.state_manager.clear_post_context(post_id)
+                logger.info(f"Контекст поста {post_id} очищен")
+            else:
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text="❌ Произошла ошибка при публикации поста"
+                )
+            
+            logger.info("=== Завершение обработки callback-запроса на публикацию ===")
+            
+        except Exception as e:
+            logger.error(f"Ошибка при обработке публикации поста: {e}", exc_info=True)
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="❌ Произошла ошибка при обработке публикации"
             )
             raise
 
