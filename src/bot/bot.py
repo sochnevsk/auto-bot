@@ -74,6 +74,13 @@ class Bot:
         ))
         logger.debug("Added delete callback handler")
         
+        # Обработчик callback-запросов для модерации
+        self.application.add_handler(CallbackQueryHandler(
+            self.handle_moderate_callback,
+            pattern=r"^moderate_"
+        ))
+        logger.debug("Added moderate callback handler")
+        
         # Обработчик текстовых сообщений
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         logger.debug("Added text message handler")
@@ -631,6 +638,122 @@ class Bot:
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text="❌ Произошла ошибка при удалении поста"
+            )
+            raise
+
+    async def handle_moderate_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        Обработчик callback-запросов для модерации поста.
+        
+        Args:
+            update: Объект обновления
+            context: Контекст бота
+        """
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("=== Начало обработки callback-запроса на модерацию ===")
+        logger.info(f"Callback query: {query.data}")
+        logger.info(f"Message ID: {query.message.message_id}")
+        logger.info(f"Chat ID: {query.message.chat_id}")
+        
+        try:
+            # Получаем post_id из callback_data
+            callback_data = query.data
+            logger.info(f"Получен callback_data: {callback_data}")
+            
+            # Проверяем формат callback_data
+            if not callback_data.startswith("moderate_"):
+                logger.error(f"Неверный формат callback_data: {callback_data}")
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text="❌ Неверный формат данных"
+                )
+                return
+                
+            post_id = callback_data.replace("moderate_", "")
+            logger.info(f"Извлечен post_id: {post_id}")
+            
+            if not post_id:
+                logger.error("post_id пустой")
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text="❌ Не удалось определить ID поста"
+                )
+                return
+            
+            # Получаем контекст поста
+            post_context = self.state_manager.get_post_context(post_id)
+            logger.info(f"Контекст поста из памяти: {post_context}")
+            
+            if not post_context:
+                logger.info(f"Контекст поста {post_id} не найден в памяти, пытаемся восстановить из storage")
+                async with AsyncFileManager(STORAGE_PATH) as storage:
+                    storage_data = await storage.read()
+                    logger.info(f"Данные из storage: {storage_data}")
+                    
+                    if post_id in storage_data:
+                        post_info = storage_data[post_id]
+                        logger.info(f"Найдена информация о посте: {post_info}")
+                        
+                        # Получаем все message_ids из storage
+                        message_ids = post_info.get('message_ids', [])
+                        logger.info(f"Получены message_ids из storage: {message_ids}")
+                        
+                        if not message_ids:
+                            logger.error("message_ids не найдены в storage")
+                            await context.bot.send_message(
+                                chat_id=query.message.chat_id,
+                                text="❌ Не удалось найти сообщения поста"
+                            )
+                            return
+                        
+                        post_context = PostContext(
+                            post_id=post_id,
+                            chat_id=post_info['chat_id'],
+                            message_id=message_ids[0],  # ID первого сообщения с фото
+                            state=BotState.POST_VIEW,
+                            original_text=post_info['text'],
+                            original_media=message_ids[:-1]  # Все ID кроме последнего (клавиатуры)
+                        )
+                        self.state_manager.set_post_context(post_id, post_context)
+                        logger.info(f"Контекст поста {post_id} восстановлен из storage: {post_context}")
+                    else:
+                        logger.error(f"Пост {post_id} не найден в storage")
+                        await context.bot.send_message(
+                            chat_id=query.message.chat_id,
+                            text="❌ Пост не найден"
+                        )
+                        return
+            
+            # Обновляем сообщение с клавиатурой
+            logger.info("Обновление сообщения с клавиатурой модерации")
+            try:
+                await query.message.edit_text(
+                    text=f"Выберите действие для поста {post_id}:",
+                    reply_markup=get_moderate_keyboard(post_id)
+                )
+                logger.info("Клавиатура модерации успешно обновлена")
+            except Exception as e:
+                logger.error(f"Ошибка при обновлении клавиатуры: {e}", exc_info=True)
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text="❌ Произошла ошибка при обновлении клавиатуры"
+                )
+                return
+            
+            # Обновляем состояние поста
+            post_context.state = BotState.MODERATE_MENU
+            self.state_manager.set_post_context(post_id, post_context)
+            logger.info(f"Состояние поста обновлено: {post_context.state}")
+            
+            logger.info("=== Завершение обработки callback-запроса на модерацию ===")
+            
+        except Exception as e:
+            logger.error(f"Ошибка при обработке модерации поста: {e}", exc_info=True)
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="❌ Произошла ошибка при обработке модерации"
             )
             raise
 
