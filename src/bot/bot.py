@@ -100,6 +100,11 @@ class Bot:
         self.application.add_handler(MessageHandler(filters.Document.IMAGE, self.handle_message))
         logger.debug("Added document message handler")
         
+        # Добавляем обработчики callback-запросов
+        self.application.add_handler(CallbackQueryHandler(self.handle_moderate_callback, pattern=r"^moderate_"))
+        self.application.add_handler(CallbackQueryHandler(self.handle_edit, pattern=r"^edit_"))
+        self.application.add_handler(CallbackQueryHandler(self.handle_delete_callback, pattern=r"^delete_"))
+        
         logger.debug("Command handlers setup completed")
 
     async def is_post_sent(self, post_id: str) -> bool:
@@ -974,6 +979,34 @@ class Bot:
                 text="❌ Произошла ошибка при обработке публикации"
             )
             raise
+
+    async def handle_edit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработчик нажатия на кнопку 'Редактировать'."""
+        query = update.callback_query
+        await query.answer()
+        
+        # Корректно извлекаем post_id
+        post_id = query.data[len("edit_"):]
+        logger.info(f"Обработка редактирования поста {post_id}")
+        
+        # Получаем контекст поста
+        post_context = self.state_manager.get_post_context(post_id)
+        if not post_context:
+            logger.error(f"Контекст поста {post_id} не найден")
+            await query.message.edit_text("Ошибка: пост не найден")
+            return
+        
+        # Меняем состояние на EDIT_MENU
+        post_context.state = BotState.EDIT_MENU
+        self.state_manager.set_post_context(post_id, post_context)
+        
+        # Обновляем сообщение с новой клавиатурой
+        await query.message.edit_text(
+            text="Выберите, что хотите отредактировать:",
+            reply_markup=get_edit_keyboard(post_id)
+        )
+        
+        logger.info(f"Пост {post_id} переведен в состояние {BotState.EDIT_MENU}")
 
 def main():
     """Основная функция."""
