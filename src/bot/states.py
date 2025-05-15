@@ -12,13 +12,24 @@ logger = logging.getLogger("bot")
 
 class BotState(str, Enum):
     """Состояния бота."""
-    POST_VIEW = 'post_view'
-    MODERATE_MENU = 'moderate_menu'
+    IDLE = 'idle'
+    EDIT_TEXT = 'edit_text'
+    EDIT_PHOTO = 'edit_photo'
     EDIT_MENU = 'edit_menu'
+    MODERATE_MENU = 'moderate_menu'
+    POST_VIEW = 'post_view'
     EDIT_TEXT_WAIT = 'edit_text_wait'
     EDIT_MEDIA_MENU = 'edit_media_menu'
     EDIT_MEDIA_ADD_WAIT = 'edit_media_add_wait'
     EDIT_MEDIA_REMOVE_WAIT = 'edit_media_remove_wait'
+
+    @classmethod
+    def is_valid(cls, state):
+        return state in [
+            cls.IDLE, cls.EDIT_TEXT, cls.EDIT_PHOTO, cls.EDIT_MENU,
+            cls.MODERATE_MENU, cls.POST_VIEW, cls.EDIT_TEXT_WAIT,
+            cls.EDIT_MEDIA_MENU, cls.EDIT_MEDIA_ADD_WAIT
+        ]
 
 
 @dataclass

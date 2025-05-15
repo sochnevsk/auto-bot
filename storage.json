@@ -1,1 +1,37 @@
-{}
+{
+  "post_20250512_034238": {
+    "id": "post_20250512_034238",
+    "dir": "saved/post_20250512_034238",
+    "datetime": "2025-05-15T17:08:54.589398",
+    "status": "sent",
+    "text": "В наличии\nBMW X7 40d 2024г. \nЖирок: интегралка, массаж, расширенная кожа, Скай лаундж, 22 колесах, потолок алькантара и тд. \nhttps://bimmer.work/vin/9b7d42ba6a7412285736e76d1a3227612/options/\nЦена нал: 16 700 000\nЦена с НДС: 19 700 000",
+    "source": "Канал: bot-testing-channel\nID: 2584740348\nДата: 2025-05-12 03:42:45",
+    "photos": [
+      "saved/post_20250512_034238/photo_1.jpg",
+      "saved/post_20250512_034238/photo_2.jpg",
+      "saved/post_20250512_034238/photo_3.jpg",
+      "saved/post_20250512_034238/photo_4.jpg",
+      "saved/post_20250512_034238/photo_5.jpg",
+      "saved/post_20250512_034238/photo_6.jpg",
+      "saved/post_20250512_034238/photo_7.jpg",
+      "saved/post_20250512_034238/photo_8.jpg",
+      "saved/post_20250512_034238/photo_9.jpg",
+      "saved/post_20250512_034238/photo_10.jpg"
+    ],
+    "message_ids": [
+      5236,
+      5237,
+      5238,
+      5239,
+      5240,
+      5241,
+      5242,
+      5243,
+      5244,
+      5245,
+      5246
+    ],
+    "keyboard_message_id": 5246,
+    "chat_id": -1002697639369
+  }
+}
