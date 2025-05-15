@@ -367,7 +367,7 @@ class Bot:
         # Начинаем обработку нового текста
         logger.info("Начинаем обработку нового текста")
 
-        # Сохраняем ID пользовательского сообщения
+        # Сохраняем ID пользовательского сообщения (текст)
         post_context.user_message_ids.append(update.message.message_id)
         self.state_manager.set_post_context(post_id, post_context)
 
@@ -546,6 +546,9 @@ class Bot:
         if not post_context:
             logger.error("Контекст поста не найден для добавления медиа")
             return
+        # Сохраняем ID пользовательского сообщения (фото)
+        post_context.user_message_ids.append(update.message.message_id)
+        self.state_manager.set_post_context(post_id, post_context)
         post_dir = os.path.join("saved", post_id)
         if not update.message.photo:
             await update.message.reply_text("❌ Пожалуйста, отправьте фото.")
