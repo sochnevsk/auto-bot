@@ -61,51 +61,74 @@ class Bot:
 
     def _setup_handlers(self) -> None:
         """Настройка обработчиков команд."""
-        logger.debug("Setting up command handlers...")
+        logger.info("=== Начало настройки обработчиков команд ===")
         
-        # Обработчик команды /test
-        self.application.add_handler(CommandHandler("test", self.test_command))
-        logger.debug("Added /test command handler")
-        
-        # Обработчик callback-запросов для удаления
-        self.application.add_handler(CallbackQueryHandler(
-            self.handle_delete_callback,
-            pattern=r"^delete_"
-        ))
-        logger.debug("Added delete callback handler")
-        
-        # Обработчик callback-запросов для модерации
-        self.application.add_handler(CallbackQueryHandler(
-            self.handle_moderate_callback,
-            pattern=r"^moderate_"
-        ))
-        logger.debug("Added moderate callback handler")
-        
-        # Обработчик callback-запросов для публикации
-        self.application.add_handler(CallbackQueryHandler(
-            self.handle_publish_callback,
-            pattern=r"^publish_"
-        ))
-        logger.debug("Added publish callback handler")
-        
-        # Обработчик текстовых сообщений
-        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
-        logger.debug("Added text message handler")
-        
-        # Обработчик фотографий
-        self.application.add_handler(MessageHandler(filters.PHOTO, self.handle_message))
-        logger.debug("Added photo message handler")
-        
-        # Обработчик документов
-        self.application.add_handler(MessageHandler(filters.Document.IMAGE, self.handle_message))
-        logger.debug("Added document message handler")
-        
-        # Добавляем обработчики callback-запросов
-        self.application.add_handler(CallbackQueryHandler(self.handle_moderate_callback, pattern=r"^moderate_"))
-        self.application.add_handler(CallbackQueryHandler(self.handle_edit, pattern=r"^edit_"))
-        self.application.add_handler(CallbackQueryHandler(self.handle_delete_callback, pattern=r"^delete_"))
-        
-        logger.debug("Command handlers setup completed")
+        try:
+            # Обработчик команды /test
+            logger.info("Регистрация обработчика /test")
+            self.application.add_handler(CommandHandler("test", self.test_command))
+            logger.info("Обработчик /test успешно зарегистрирован")
+            
+            # Обработчик callback-запросов для удаления
+            logger.info("Регистрация обработчика delete_")
+            self.application.add_handler(CallbackQueryHandler(
+                self.handle_delete_callback,
+                pattern=r"^delete_"
+            ))
+            logger.info("Обработчик delete_ успешно зарегистрирован")
+            
+            # Обработчик callback-запросов для модерации
+            logger.info("Регистрация обработчика moderate_")
+            self.application.add_handler(CallbackQueryHandler(
+                self.handle_moderate_callback,
+                pattern=r"^moderate_"
+            ))
+            logger.info("Обработчик moderate_ успешно зарегистрирован")
+            
+            # Обработчик callback-запросов для публикации
+            logger.info("Регистрация обработчика publish_")
+            self.application.add_handler(CallbackQueryHandler(
+                self.handle_publish_callback,
+                pattern=r"^publish_"
+            ))
+            logger.info("Обработчик publish_ успешно зарегистрирован")
+            
+            # Обработчик callback-запросов для редактирования текста
+            logger.info("Регистрация обработчика edittext_")
+            self.application.add_handler(CallbackQueryHandler(
+                self.handle_edit_text_callback,
+                pattern=r"^edittext_"
+            ))
+            logger.info("Обработчик edittext_ успешно зарегистрирован")
+            
+            # Обработчик callback-запросов для редактирования
+            logger.info("Регистрация обработчика edit_")
+            self.application.add_handler(CallbackQueryHandler(
+                self.handle_edit,
+                pattern=r"^edit_"
+            ))
+            logger.info("Обработчик edit_ успешно зарегистрирован")
+            
+            # Обработчик текстовых сообщений
+            logger.info("Регистрация обработчика текстовых сообщений")
+            self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+            logger.info("Обработчик текстовых сообщений успешно зарегистрирован")
+            
+            # Обработчик фотографий
+            logger.info("Регистрация обработчика фотографий")
+            self.application.add_handler(MessageHandler(filters.PHOTO, self.handle_message))
+            logger.info("Обработчик фотографий успешно зарегистрирован")
+            
+            # Обработчик документов
+            logger.info("Регистрация обработчика документов")
+            self.application.add_handler(MessageHandler(filters.Document.IMAGE, self.handle_message))
+            logger.info("Обработчик документов успешно зарегистрирован")
+            
+            logger.info("=== Настройка обработчиков команд успешно завершена ===")
+            
+        except Exception as e:
+            logger.error(f"Ошибка при настройке обработчиков: {e}", exc_info=True)
+            raise
 
     async def is_post_sent(self, post_id: str) -> bool:
         """Проверяет, был ли пост уже отправлен."""
@@ -233,8 +256,9 @@ class Bot:
                     original_text=full_text,
                     original_media=message_ids[:-1]  # Все ID кроме последнего (клавиатуры)
                 )
-                logger.info(f"Created post context: {post_context}")
+                logger.info(f"Создан новый контекст поста: {post_context}")
                 self.state_manager.set_post_context(post_id, post_context)
+                logger.info(f"Контекст поста {post_id} сохранен с состоянием {BotState.POST_VIEW}")
 
                 post_info = {
                     "id": post_id,
@@ -282,18 +306,183 @@ class Bot:
         
         # Получаем контекст поста из состояния
         post_context = None
-        for pid, ctx in self.state_manager._post_contexts.items():
-            if ctx.chat_id == update.message.chat_id:
+        post_id = None
+        
+        # Ищем контекст поста по chat_id и состоянию
+        logger.info("Поиск контекста поста...")
+        for pid, ctx in self.state_manager.get_all_contexts().items():
+            logger.info(f"Проверка контекста поста {pid}:")
+            logger.info(f"  - Chat ID: {ctx.chat_id}")
+            logger.info(f"  - State: {ctx.state}")
+            logger.info(f"  - Original Text: {ctx.original_text}")
+            
+            if ctx.chat_id == update.message.chat_id and ctx.state == BotState.EDIT_TEXT_WAIT:
                 post_context = ctx
-                logger.info(f"Найден контекст поста: {pid}")
+                post_id = pid
+                logger.info(f"Найден подходящий контекст поста: {pid}")
                 break
         
         if not post_context:
-            logger.info("Контекст поста не найден")
+            logger.info("Контекст поста не найден или состояние не EDIT_TEXT_WAIT")
             return
         
         logger.info(f"Текущее состояние поста: {post_context.state}")
-        logger.info(f"Текущий контекст поста: {post_context}")
+        
+        # Обработка ввода нового текста
+        if post_context.state == BotState.EDIT_TEXT_WAIT:
+            logger.info("Состояние EDIT_TEXT_WAIT подтверждено")
+            
+            if not update.message.text:
+                logger.info("Сообщение не содержит текста")
+                return
+                
+            logger.info("Начинаем обработку нового текста")
+            
+            try:
+                # Получаем путь к папке поста
+                post_dir = os.path.join("saved", post_id)
+                logger.info(f"Путь к папке поста: {post_dir}")
+                
+                if not os.path.exists(post_dir):
+                    logger.error(f"Папка поста не найдена: {post_dir}")
+                    await update.message.reply_text("❌ Ошибка: папка поста не найдена")
+                    return
+                
+                # Сохраняем новый текст в temp.txt
+                temp_file = os.path.join(post_dir, "temp.txt")
+                logger.info(f"Путь к временному файлу: {temp_file}")
+                
+                try:
+                    with open(temp_file, 'w', encoding='utf-8') as f:
+                        f.write(update.message.text)
+                    logger.info(f"Новый текст сохранен в {temp_file}")
+                except Exception as e:
+                    logger.error(f"Ошибка при сохранении temp.txt: {e}")
+                    await update.message.reply_text("❌ Ошибка при сохранении текста")
+                    return
+                
+                # Получаем список фотографий
+                photos = sorted(
+                    [f for f in os.listdir(post_dir) if f.startswith("photo_") and f.endswith(".jpg")],
+                    key=lambda x: int(x.split("_")[1].split(".")[0])
+                )
+                logger.info(f"Найдено фотографий: {len(photos)}")
+                
+                if not photos:
+                    logger.error(f"Нет фотографий в папке {post_dir}")
+                    await update.message.reply_text("❌ Ошибка: фотографии не найдены")
+                    return
+                
+                photo_paths = [os.path.join(post_dir, photo) for photo in photos]
+                logger.info(f"Пути к фотографиям: {photo_paths}")
+                
+                # Формируем медиа-группу
+                media_group = []
+                for i, path in enumerate(photo_paths):
+                    logger.info(f"Обработка фото {i+1}/{len(photo_paths)}: {path}")
+                    # Добавляем caption только к первой фотографии
+                    if i == 0:
+                        media_group.append(
+                            InputMediaPhoto(
+                                media=open(path, 'rb'),
+                                caption=update.message.text
+                            )
+                        )
+                        logger.info("Добавлено фото с caption")
+                    else:
+                        media_group.append(
+                            InputMediaPhoto(
+                                media=open(path, 'rb')
+                            )
+                        )
+                        logger.info("Добавлено фото без caption")
+                
+                # Отправляем новый пост
+                logger.info("Отправка нового поста")
+                messages = await context.bot.send_media_group(
+                    chat_id=post_context.chat_id,
+                    media=media_group,
+                    read_timeout=30,
+                    write_timeout=30,
+                    connect_timeout=30,
+                    pool_timeout=30
+                )
+                logger.info("Новый пост успешно отправлен")
+                
+                # Удаляем старый пост
+                logger.info("Удаление старого поста")
+                for message_id in post_context.original_media:
+                    try:
+                        await context.bot.delete_message(
+                            chat_id=post_context.chat_id,
+                            message_id=message_id
+                        )
+                        logger.info(f"Удалено старое сообщение с ID: {message_id}")
+                    except Exception as e:
+                        logger.error(f"Ошибка при удалении старого сообщения {message_id}: {e}")
+                
+                # Обновляем контекст поста с новыми ID
+                message_ids = [msg.message_id for msg in messages]
+                logger.info(f"Получены новые ID сообщений: {message_ids}")
+                
+                post_context.original_media = message_ids
+                post_context.original_text = update.message.text
+                post_context.state = BotState.MODERATE_MENU
+                self.state_manager.set_post_context(post_id, post_context)
+                logger.info("Контекст поста обновлен")
+                
+                # Отправляем клавиатуру к новому посту
+                logger.info("Отправка клавиатуры")
+                
+                # Читаем информацию об источнике
+                source_file = os.path.join(post_dir, "source.txt")
+                if not os.path.exists(source_file):
+                    logger.error(f"No source file found in {post_dir}")
+                    return False
+
+                with open(source_file, 'r', encoding='utf-8') as f:
+                    source_info = f.read().strip()
+                    logger.info(f"Source info: {source_info}")
+
+                keyboard_message = await context.bot.send_message(
+                    chat_id=post_context.chat_id,
+                    text=f"Выберите действие для поста \n{source_info}:",
+                    reply_markup=get_moderate_keyboard(post_id)
+                )
+                logger.info("Клавиатура отправлена")
+                
+                # Добавляем ID сообщения с клавиатурой
+                message_ids.append(keyboard_message.message_id)
+                logger.info(f"Обновленный список ID сообщений: {message_ids}")
+                
+                # Обновляем storage
+                logger.info("Обновление storage")
+                async with AsyncFileManager(STORAGE_PATH) as storage:
+                    data = await storage.read()
+                    if post_id in data:
+                        data[post_id]['message_ids'] = message_ids
+                        data[post_id]['text'] = update.message.text
+                        await storage.write(data)
+                        logger.info(f"Storage обновлен для поста {post_id}")
+                    else:
+                        logger.warning(f"Пост {post_id} не найден в storage")
+                
+                # Удаляем temp.txt после успешного обновления
+                try:
+                    os.remove(temp_file)
+                    logger.info(f"Временный файл {temp_file} удален")
+                except Exception as e:
+                    logger.error(f"Ошибка при удалении temp.txt: {e}")
+                
+                logger.info("=== Завершение обработки ввода нового текста ===")
+                return
+                
+            except Exception as e:
+                logger.error(f"Ошибка при обработке нового текста: {e}", exc_info=True)
+                await update.message.reply_text("❌ Произошла ошибка при обновлении поста")
+                return
+        else:
+            logger.info(f"Состояние не EDIT_TEXT_WAIT: {post_context.state}")
         
         logger.info("=== Завершение обработки сообщения ===")
 
@@ -982,6 +1171,8 @@ class Bot:
 
     async def handle_edit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик нажатия на кнопку 'Редактировать'."""
+        logger.info("=== Начало обработки callback-запроса на редактирование ===")
+        
         query = update.callback_query
         await query.answer()
         
@@ -996,9 +1187,18 @@ class Bot:
             await query.message.edit_text("Ошибка: пост не найден")
             return
         
+        # Проверяем текущее состояние
+        logger.info(f"Текущее состояние поста: {post_context.state}")
+        if post_context.state != BotState.POST_VIEW and post_context.state != BotState.MODERATE_MENU:
+            logger.error(f"Некорректное состояние для редактирования: {post_context.state}")
+            await query.message.edit_text("Ошибка: некорректное состояние поста")
+            return
+        
         # Меняем состояние на EDIT_MENU
+        old_state = post_context.state
         post_context.state = BotState.EDIT_MENU
         self.state_manager.set_post_context(post_id, post_context)
+        logger.info(f"Состояние поста изменено: {old_state} -> {post_context.state}")
         
         # Обновляем сообщение с новой клавиатурой
         await query.message.edit_text(
@@ -1007,6 +1207,50 @@ class Bot:
         )
         
         logger.info(f"Пост {post_id} переведен в состояние {BotState.EDIT_MENU}")
+        logger.info("=== Завершение обработки callback-запроса на редактирование ===")
+
+    async def handle_edit_text_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработчик нажатия на кнопку 'Текст'."""
+        logger.info("=== Начало обработки callback-запроса на редактирование текста ===")
+        
+        query = update.callback_query
+        await query.answer()
+        
+        # Извлекаем post_id
+        post_id = query.data[len("edittext_"):]
+        logger.info(f"Получен post_id: {post_id}")
+        
+        # Получаем контекст поста
+        post_context = self.state_manager.get_post_context(post_id)
+        logger.info(f"Текущий контекст поста: {post_context}")
+        
+        if not post_context:
+            logger.error(f"Контекст поста {post_id} не найден")
+            await query.message.edit_text("Ошибка: пост не найден")
+            return
+        
+        # Проверяем текущее состояние
+        logger.info(f"Текущее состояние поста: {post_context.state}")
+        if post_context.state != BotState.EDIT_MENU:
+            logger.error(f"Некорректное состояние для редактирования текста: {post_context.state}")
+            await query.message.edit_text("Ошибка: некорректное состояние поста")
+            return
+        
+        # Меняем состояние на EDIT_TEXT_WAIT
+        old_state = post_context.state
+        post_context.state = BotState.EDIT_TEXT_WAIT
+        self.state_manager.set_post_context(post_id, post_context)
+        logger.info(f"Состояние поста изменено: {old_state} -> {post_context.state}")
+        
+        # Отправляем служебное сообщение
+        await context.bot.send_message(
+            chat_id=post_context.chat_id,
+            text="Введите новый текст для поста:"
+        )
+        logger.info("Отправлено сообщение с запросом нового текста")
+        
+        logger.info(f"Пост {post_id} переведен в состояние {BotState.EDIT_TEXT_WAIT}")
+        logger.info("=== Завершение обработки callback-запроса на редактирование текста ===")
 
 def main():
     """Основная функция."""
