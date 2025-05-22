@@ -19,6 +19,8 @@ from telegram.ext import (
 from telegram.error import TimedOut, NetworkError, TelegramError
 import time
 import collections
+import re
+import sys
 
 from src.config.settings import settings
 from src.utils.logger import setup_logger
@@ -31,6 +33,7 @@ from src.bot.keyboards import (
 from src.bot.storage import AsyncFileManager, SentPostsCache
 from src.bot.states import BotState, StateManager, PostContext
 from src.bot.handlers.callback import handle_media_callback
+from src.bot.text_processor import TextProcessor
 
 # Настройка логгера
 logger = setup_logger("bot")
@@ -56,6 +59,7 @@ class Bot:
         self.state_manager = StateManager()
         self.storage = AsyncFileManager("storage.json")
         self.sent_posts_cache = SentPostsCache()
+        self.text_processor = TextProcessor()
         
         # Создаем storage.json если его нет
         if not os.path.exists(STORAGE_PATH):
@@ -213,6 +217,11 @@ class Bot:
                 post_text = f.read().strip()
                 logger.info(f"[process_post] Текст поста: {post_text[:100]}...")
 
+            # Обрабатываем текст с учетом лимитов
+            processed_text, was_truncated = await self.text_processor.process_text(post_text)
+            if was_truncated:
+                logger.info("[process_post] Текст был обрезан из-за превышения лимита")
+            
             # Читаем информацию об источнике
             source_file = os.path.join(post_dir, "source.txt")
             if not os.path.exists(source_file):
@@ -224,7 +233,7 @@ class Bot:
                 logger.info(f"[process_post] Информация об источнике: {source_info}")
 
             # Формируем полный текст поста с информацией об источнике
-            full_text = f"{post_text}"
+            full_text = f"{processed_text}"
 
             # Получаем список фотографий
             photos = sorted(
@@ -274,10 +283,10 @@ class Bot:
                     chat_id=settings.MODERATOR_GROUP_ID,
                     text=f"Выберите действие для поста \n{source_info}:",
                     reply_markup=get_post_keyboard(post_id),
-                    read_timeout=30,
-                    write_timeout=30,
-                    connect_timeout=30,
-                    pool_timeout=30
+                    read_timeout=20,
+                    write_timeout=15,
+                    connect_timeout=15,
+                    pool_timeout=15
                 )
                 logger.info("[process_post] Клавиатура успешно отправлена")
 
@@ -434,6 +443,11 @@ class Bot:
                 # Формируем пути к фотографиям
                 photo_paths = [os.path.join(post_dir, photo) for photo in photos]
                 logger.info(f"Пути к фотографиям: {photo_paths}")
+                # Обрабатываем текст с учетом лимитов
+                processed_text, was_truncated = await self.text_processor.process_text(update.message.text)
+                if was_truncated:
+                    logger.info("Текст был обрезан из-за превышения лимита")
+                    await update.message.reply_text("⚠️ Текст был обрезан из-за превышения лимита Telegram (1024 символа)")
                 # Добавляем фотографии в media_group
                 for i, photo_path in enumerate(photo_paths):
                     logger.info(f"Обработка фото {i+1}/{len(photo_paths)}: {photo_path}")
@@ -442,7 +456,7 @@ class Bot:
                             media_group.append(
                                 InputMediaPhoto(
                                     media=photo,
-                                    caption=update.message.text
+                                    caption=processed_text
                                 )
                             )
                             logger.info("Добавлено фото с caption")
@@ -464,7 +478,7 @@ class Bot:
                 message_ids = [msg.message_id for msg in messages]
                 logger.info(f"Получены новые ID сообщений: {message_ids}")
                 post_context.original_media = message_ids
-                post_context.original_text = update.message.text
+                post_context.original_text = processed_text
                 post_context.state = BotState.MODERATE_MENU
                 logger.info(f"Смена состояния: EDIT_TEXT_WAIT -> MODERATE_MENU для поста {post_id}")
                 self.state_manager.set_post_context(post_id, post_context)
@@ -484,9 +498,9 @@ class Bot:
                     text=f"Выберите действие для поста \n{source_info}:",
                     reply_markup=get_moderate_keyboard(post_id),
                     read_timeout=20,
-                    write_timeout=20,
-                    connect_timeout=20,
-                    pool_timeout=20
+                    write_timeout=15,
+                    connect_timeout=15,
+                    pool_timeout=15
                 )
                 logger.info(f"Клавиатура отправлена, message_id={keyboard_message.message_id}")
                 # Сохраняем ID сообщения с клавиатурой в service_messages
@@ -501,7 +515,7 @@ class Bot:
                     data = await storage.read()
                     if post_id in data:
                         data[post_id]['message_ids'] = message_ids
-                        data[post_id]['text'] = update.message.text
+                        data[post_id]['text'] = processed_text
                         await storage.write(data)
                         logger.info(f"Storage обновлен для поста {post_id}")
                     else:
@@ -612,7 +626,11 @@ class Bot:
             keyboard_message = await context.bot.send_message(
                 chat_id=post_context.chat_id,
                 text="Выберите действие для поста:",
-                reply_markup=get_moderate_keyboard(post_id)
+                reply_markup=get_moderate_keyboard(post_id),
+                read_timeout=20,
+                write_timeout=15,
+                connect_timeout=15,
+                pool_timeout=15
             )
             post_context.service_messages.append(keyboard_message.message_id)
             post_context.state = BotState.MODERATE_MENU
@@ -723,7 +741,11 @@ class Bot:
         keyboard_message = await context.bot.send_message(
             chat_id=post_context.chat_id,
             text="Выберите действие для поста:",
-            reply_markup=get_moderate_keyboard(post_id)
+            reply_markup=get_moderate_keyboard(post_id),
+            read_timeout=20,
+            write_timeout=15,
+            connect_timeout=15,
+            pool_timeout=15
         )
         post_context.service_messages.append(keyboard_message.message_id)
         post_context.state = BotState.MODERATE_MENU
@@ -779,7 +801,11 @@ class Bot:
         keyboard_message = await context.bot.send_message(
             chat_id=post_context.chat_id,
             text="Выберите действие для поста:",
-            reply_markup=get_moderate_keyboard(post_id)
+            reply_markup=get_moderate_keyboard(post_id),
+            read_timeout=20,
+            write_timeout=15,
+            connect_timeout=15,
+            pool_timeout=15
         )
         post_context.service_messages.append(keyboard_message.message_id)
         post_context.state = BotState.MODERATE_MENU
@@ -1089,7 +1115,7 @@ class Bot:
                     logger.info(f"Информация о посте {post_id} удалена из storage")
                 else:
                     logger.warning(f"Пост {post_id} не найден в storage для удаления")
-            # Очищаем контекст поста
+            # Очищаем контекст
             logger.info("Очистка контекста поста")
             self.state_manager.clear_post_context(post_id)
             # Отправляем уведомление об удалении
@@ -1196,7 +1222,11 @@ class Bot:
             try:
                 await query.message.edit_text(
                     text=f"Выберите действие для поста {post_id}:",
-                    reply_markup=get_moderate_keyboard(post_id)
+                    reply_markup=get_moderate_keyboard(post_id),
+                    read_timeout=20,
+                    write_timeout=15,
+                    connect_timeout=15,
+                    pool_timeout=15
                 )
                 logger.info("Клавиатура модерации успешно обновлена")
             except Exception as e:
@@ -1265,7 +1295,6 @@ class Bot:
             
             # Получаем текст поста (оригинальный или отредактированный)
             post_text = post_context.temp_text if post_context.temp_text else post_context.original_text
-            post_text += "\n\n@pedalgaza_tg"
             logger.info(f"Текст поста для публикации: {post_text[:100]}...")
 
 
@@ -1274,20 +1303,32 @@ class Bot:
             if not os.path.exists(post_dir):
                 logger.error(f"Папка поста не найдена: {post_dir}")
                 return False
-            # Читаем текст закрытого поста
-            close_text = post_text
+
+            # Читаем text_close.txt для закрытого канала
             text_close_file = os.path.join(post_dir, "text_close.txt")
-            if os.path.exists(text_close_file):
-                with open(text_close_file, 'r', encoding='utf-8') as f:
-                    close_text = f.read()
-            else:
-                logger.error(f"No close_text.txt file found in {post_dir}")
+            if not os.path.exists(text_close_file):
+                logger.error(f"Файл text_close.txt не найден в {post_dir}")
+                return False
+
+            # Читаем текст для закрытого канала
+            with open(text_close_file, 'r', encoding='utf-8') as f:
+                close_text = f.read().strip()
+                logger.info(f"Текст из text_close.txt: {close_text[:100]}...")
+
+            # Читаем первые две строки из source.txt
             source_file = os.path.join(post_dir, "source.txt")
-            if os.path.exists(source_file):
-                with open(source_file, 'r', encoding='utf-8') as f:
-                    close_text += "\n\n" + f.read()
-            else:
-                logger.error(f"No source.txt file found in {post_dir}")                
+            if not os.path.exists(source_file):
+                logger.error(f"Файл source.txt не найден в {post_dir}")
+                return False
+
+            with open(source_file, 'r', encoding='utf-8') as f:
+                source_lines = f.readlines()
+                if len(source_lines) >= 2:
+                    source_text = ''.join(source_lines[:2]).strip()
+                    logger.info(f"Первые две строки из source.txt: {source_text}")
+                else:
+                    logger.error(f"В файле source.txt недостаточно строк: {source_lines}")
+                    return False
 
             # Получаем список фотографий
             photos = sorted(
@@ -1301,6 +1342,19 @@ class Bot:
             photo_paths = [os.path.join(post_dir, photo) for photo in photos]
             logger.info(f"Найдено {len(photos)} фотографий: {photo_paths}")
             
+            # Обрабатываем текст для публикации в открытый канал
+            processed_text, was_truncated = await self.text_processor.process_text(post_text, is_channel=True)
+            if was_truncated:
+                logger.info("Текст был обрезан из-за превышения лимита")
+            
+            # Обрабатываем текст для закрытого канала
+            processed_close_text, was_truncated = await self.text_processor.process_private_channel_text(
+                close_text,
+                source_text
+            )
+            if was_truncated:
+                logger.info("Текст для закрытого канала был обрезан из-за превышения лимита")
+            
             # Формируем медиа-группу
             media_group = []
             private_first_media_photo = None
@@ -1310,12 +1364,12 @@ class Bot:
                     if i == 0:
                         private_first_media_photo = InputMediaPhoto(
                             media=open(path, 'rb'),
-                            caption=close_text
+                            caption=processed_close_text
                         )
                         media_group.append(
                             InputMediaPhoto(
                                 media=open(path, 'rb'),
-                                caption=post_text
+                                caption=processed_text
                             )
                         )
                     else:
@@ -1413,6 +1467,7 @@ class Bot:
                     )
                 except Exception as e:
                     logger.error(f"[delete_post_and_messages_by_id] Ошибка при удалении сообщения {message_id}: {e}")
+            
             # Удаляем все служебные сообщения
             for message_id in getattr(post_context, 'service_messages', []):
                 try:
@@ -1422,6 +1477,7 @@ class Bot:
                     )
                 except Exception as e:
                     logger.error(f"[delete_post_and_messages_by_id] Ошибка при удалении служебного сообщения {message_id}: {e}")
+            
             # Удаляем все пользовательские сообщения
             for message_id in getattr(post_context, 'user_message_ids', []):
                 try:
@@ -1431,6 +1487,15 @@ class Bot:
                     )
                 except Exception as e:
                     logger.error(f"[delete_post_and_messages_by_id] Ошибка при удалении пользовательского сообщения {message_id}: {e}")
+            
+            # Удаляем сообщение с клавиатурой (если оно ещё есть)
+            if moderator_message:
+                try:
+                    await moderator_message.delete()
+                    logger.info(f"Удалено сообщение с клавиатурой ID: {moderator_message.message_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка при удалении сообщения с клавиатурой: {e}", exc_info=True)
+            
             # Удаляем директорию поста и файлы
             post_dir = os.path.join(SAVED_DIR, post_id)
             if os.path.exists(post_dir):
@@ -1464,7 +1529,7 @@ class Bot:
             logger.info("Отправка уведомления об удалении")
             await context.bot.send_message(
                 chat_id=post_context.chat_id,
-                text=f"✅ Пост успешно опубликован каналах"
+                text=f"✅ Пост успешно опубликован в каналах"
             )
             
             logger.info("=== Завершение обработки callback-запроса на удаление ===")
@@ -1551,7 +1616,11 @@ class Bot:
         # Обновляем сообщение с новой клавиатурой
         msg = await query.message.edit_text(
             text="Выберите, что хотите отредактировать:",
-            reply_markup=get_edit_keyboard(post_id)
+            reply_markup=get_edit_keyboard(post_id),
+            read_timeout=20,
+            write_timeout=15,
+            connect_timeout=15,
+            pool_timeout=15
         )
         logger.info(f"Служебное сообщение с клавиатурой отправлено, message_id={msg.message_id}")
         # Сохраняем ID сообщения с клавиатурой в service_messages
