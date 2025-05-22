@@ -85,55 +85,55 @@ def clean_text_for_open(text: str) -> str:
         original_line = line
         protected_line = line
         
-        logging.info(f"\n=== Начало обработки строки ===")
-        logging.info(f"Оригинальная строка: {original_line}")
+        #logging.info(f"\n=== Начало обработки строки ===")
+        #logging.info(f"Оригинальная строка: {original_line}")
         
         # 1. Сначала находим ВСЕ важные элементы, которые нужно защитить
         # Находим годы
         years = year_pattern.findall(protected_line)
-        logging.info(f"Найдены годы: {years}")
+        #logging.info(f"Найдены годы: {years}")
         
         # Находим цены
         prices = price_pattern.findall(protected_line)
-        logging.info(f"Найдены цены: {prices}")
+        #logging.info(f"Найдены цены: {prices}")
         
         # Находим модели
         models = model_pattern.findall(protected_line)
-        logging.info(f"Найдены модели: {models}")
+        #logging.info(f"Найдены модели: {models}")
         
         # Находим VIN-коды
         vins = vin_pattern.findall(protected_line)
-        logging.info(f"Найдены VIN: {vins}")
+        #logging.info(f"Найдены VIN: {vins}")
         
         # 2. Защищаем найденные элементы
         # Защищаем годы
         for year in years:
             protected_line = protected_line.replace(year, f"YEAR_{year}_PROTECTED")
-            logging.info(f"Защищен год {year}")
+            #logging.info(f"Защищен год {year}")
             
         # Защищаем цены
         for price in prices:
             protected_line = protected_line.replace(price, f"PRICE_{price}_PROTECTED")
-            logging.info(f"Защищена цена {price}")
+            #logging.info(f"Защищена цена {price}")
             
         # Защищаем модели
         for model in models:
             protected_line = protected_line.replace(model, f"MODEL_{model}_PROTECTED")
-            logging.info(f"Защищена модель {model}")
+            #logging.info(f"Защищена модель {model}")
             
         # Защищаем VIN-коды
         for vin in vins:
             protected_line = protected_line.replace(vin, f"VIN_{vin}_PROTECTED")
-            logging.info(f"Защищен VIN {vin}")
+            #logging.info(f"Защищен VIN {vin}")
         
-        logging.info(f"Строка после защиты: {protected_line}")
+        #logging.info(f"Строка после защиты: {protected_line}")
         
         # 3. Теперь удаляем все контакты и ссылки
         # Удаляем контактные эмодзи
         for emoji in contact_emojis:
             if emoji in protected_line:
                 protected_line = protected_line.replace(emoji, '')
-                logging.info(f"Удален эмодзи {emoji}")
+                #logging.info(f"Удален эмодзи {emoji}")
         
         # Удаляем все найденные паттерны
         for pattern in patterns:
@@ -143,25 +143,25 @@ def clean_text_for_open(text: str) -> str:
                 if new_line == protected_line:
                     break
                 protected_line = new_line
-                logging.info(f"Применен паттерн {pattern.pattern}, результат: {protected_line}")
+                #logging.info(f"Применен паттерн {pattern.pattern}, результат: {protected_line}")
         
-        logging.info(f"Строка после удаления контактов: {protected_line}")
+        #logging.info(f"Строка после удаления контактов: {protected_line}")
         
         # 4. Восстанавливаем защищенную информацию
         for year in years:
             protected_line = protected_line.replace(f"YEAR_{year}_PROTECTED", year)
-            logging.info(f"Восстановлен год {year}")
+            #logging.info(f"Восстановлен год {year}")
         for price in prices:
             protected_line = protected_line.replace(f"PRICE_{price}_PROTECTED", price)
-            logging.info(f"Восстановлена цена {price}")
+            #logging.info(f"Восстановлена цена {price}")
         for model in models:
             protected_line = protected_line.replace(f"MODEL_{model}_PROTECTED", model)
-            logging.info(f"Восстановлена модель {model}")
+            #logging.info(f"Восстановлена модель {model}")
         for vin in vins:
             protected_line = protected_line.replace(f"VIN_{vin}_PROTECTED", vin)
-            logging.info(f"Восстановлен VIN {vin}")
+            #logging.info(f"Восстановлен VIN {vin}")
         
-        logging.info(f"Финальная строка: {protected_line}")
+        #logging.info(f"Финальная строка: {protected_line}")
         
         # Проверяем, содержит ли строка только контактную информацию
         l = protected_line.lower()
@@ -177,15 +177,15 @@ def clean_text_for_open(text: str) -> str:
         # Пропускаем строку только если она содержит ТОЛЬКО контактную информацию
         # и не содержит другого значимого текста, и не является годом
         if (has_keywords or (only_numbers_and_separators and not is_year)) and not has_other_text and protected_line.strip():
-            logging.info("Строка пропущена как контактная информация")
+            #logging.info("Строка пропущена как контактная информация")
             continue
         
         # Всегда добавляем строку, даже если она пустая
         # Это сохраняет структуру текста
         clean_lines.append(protected_line)
-        logging.info("Строка добавлена в результат")
+        #logging.info("Строка добавлена в результат")
     
     # Собираем результат, сохраняя все строки
     result = '\n'.join(clean_lines)
-    logging.info(f"\n=== Финальный результат ===\n{result}")
+    #logging.info(f"\n=== Финальный результат ===\n{result}")
     return result
