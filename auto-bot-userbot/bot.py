@@ -201,98 +201,87 @@ async def save_channel_message(event):
                 media_key = f"{event.chat_id}_{event.id}"
             
             if media_key in processed_media:
-                logging.info(f"Медиа {media_key} уже было обработано, пропускаем")
+                logging.info(f"⏭️ Медиа {media_key} уже было обработано")
                 return
             processed_media.add(media_key)
-            logging.info(f"Добавлен ключ медиа в обработанные: {media_key}")
-        
+
         # Для альбомов проверяем, не был ли он уже обработан
         if event.grouped_id:
             album_key = f"{event.chat_id}_{event.grouped_id}"
             if album_key in processed_albums:
-                logging.info(f"Альбом {album_key} уже был обработан, пропускаем")
+                logging.info(f"⏭️ Альбом {album_key} уже был обработан")
                 return
             processed_albums.add(album_key)
-            logging.info(f"Добавлен ключ альбома в обработанные: {album_key}")
             
         # Для фото-документов проверяем, не был ли он уже обработан
         if event.media and hasattr(event.media, 'document'):
             if event.media.document.mime_type.startswith('image/'):
                 doc_key = f"{event.chat_id}_{event.id}"
                 if doc_key in processed_documents:
-                    logging.info(f"Фото-документ {doc_key} уже был обработан, пропускаем")
+                    logging.info(f"⏭️ Фото-документ {doc_key} уже был обработан")
                     return
                 processed_documents.add(doc_key)
-                logging.info(f"Добавлен ключ фото-документа в обработанные: {doc_key}")
-            else:
-                logging.info(f"Получен документ не фото типа: {event.media.document.mime_type}, пропускаем")
-                return
 
         # Создаем папку для поста с ID сообщения
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         message_id = event.id
         post_folder = os.path.join(SAVED_DIR, f"post_{timestamp}_{message_id}")
         os.makedirs(post_folder, exist_ok=True)
-        logging.info(f"Создана папка для поста: {post_folder}")
 
         # Определяем тип сообщения и сохраняем соответствующим способом
         if event.grouped_id:
-            logging.info(f"Получен альбом из канала {event.chat.title}")
+            logging.info(f"📦 Обработка альбома из канала {event.chat.title}")
             await save_album(event, post_folder)
         elif event.media and isinstance(event.media, MessageMediaPhoto):
             if not event.text:
-                logging.info(f"Получено одиночное фото без текста из канала {event.chat.title}, пропускаем")
+                logging.info(f"⏭️ Пропуск фото без текста из канала {event.chat.title}")
                 if os.path.exists(post_folder):
                     shutil.rmtree(post_folder)
                 return
-            logging.info(f"Получено одиночное фото из канала {event.chat.title}")
+            logging.info(f"📸 Обработка одиночного фото из канала {event.chat.title}")
             await save_single_photo(event, post_folder)
         elif event.media and hasattr(event.media, 'document'):
             if event.media.document.mime_type.startswith('image/'):
                 if not event.text:
-                    logging.info(f"Получен фото-документ без текста из канала {event.chat.title}, пропускаем")
+                    logging.info(f"⏭️ Пропуск фото-документа без текста из канала {event.chat.title}")
                     if os.path.exists(post_folder):
                         shutil.rmtree(post_folder)
                     return
-                logging.info(f"Получен фото-документ из канала {event.chat.title}")
+                logging.info(f"📄 Обработка фото-документа из канала {event.chat.title}")
                 await save_photo_document(event, post_folder)
             else:
-                logging.info(f"Получен документ не фото типа: {event.media.document.mime_type}, пропускаем")
+                logging.info(f"⏭️ Пропуск не фото документа из канала {event.chat.title}")
                 if os.path.exists(post_folder):
                     shutil.rmtree(post_folder)
                 return
         else:
-            logging.info(f"Получен пост без фото, пропускаем")
+            logging.info(f"⏭️ Пропуск поста без фото из канала {event.chat.title}")
             if os.path.exists(post_folder):
                 shutil.rmtree(post_folder)
             return
 
-        # Сохраняем информацию об источнике
-        source_info = f"Канал: @{event.chat.username}\nДата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\nID сообщения: {message_id}"
-        source_path = os.path.join(post_folder, "source.txt")
-        with open(source_path, "w", encoding="utf-8") as f:
-            f.write(source_info)
-        logging.info(f"Сохранена информация об источнике в {source_path}")
+        # Сохраняем информацию об источнике только если пост был успешно сохранен
+        if os.path.exists(post_folder):
+            source_info = f"Канал: @{event.chat.username}\nДата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\nID сообщения: {message_id}"
+            source_path = os.path.join(post_folder, "source.txt")
+            with open(source_path, "w", encoding="utf-8") as f:
+                f.write(source_info)
 
-        # Создаем файл ready.txt
-        save_ready_flag(post_folder)
-        logging.info(f"Создан файл ready.txt в {os.path.join(post_folder, 'ready.txt')}")
-        logging.info(f"Пост успешно сохранен в {post_folder}")
+            # Создаем файл ready.txt
+            save_ready_flag(post_folder)
+            logging.info(f"✅ Пост успешно сохранен в {post_folder}")
 
     except Exception as e:
-        logging.error(f"Ошибка при сохранении поста: {e}")
-        # Сохраняем информацию об ошибке
-        if post_folder:
+        if post_folder and os.path.exists(post_folder):
+            logging.error(f"❌ Ошибка при сохранении поста: {e}")
             try:
                 error_info = f"Ошибка: {str(e)}\nВремя: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                 error_path = os.path.join(post_folder, "error.txt")
                 with open(error_path, "w", encoding="utf-8") as f:
                     f.write(error_info)
-                logging.info(f"Сохранена информация об ошибке в {error_path}")
             except Exception as inner_e:
-                logging.error(f"Не удалось сохранить информацию об ошибке: {inner_e}")
-        else:
-            logging.error("Не удалось сохранить информацию об ошибке: папка поста не была создана")
+                logging.error(f"❌ Не удалось сохранить информацию об ошибке: {inner_e}")
+            shutil.rmtree(post_folder)
 
 async def save_album(event, post_folder):
     """Сохранение альбома с фото"""
@@ -306,7 +295,6 @@ async def save_album(event, post_folder):
         # Сортируем по ID для правильного порядка
         album_messages.sort(key=lambda x: x.id)
         total_photos = len(album_messages)
-        logging.info(f"Найдено {total_photos} сообщений в альбоме")
 
         # Проверяем наличие текста хотя бы в одном сообщении альбома
         has_text = False
@@ -318,7 +306,7 @@ async def save_album(event, post_folder):
                 break
 
         if not has_text:
-            logging.warning(f"Альбом не содержит текста, пропускаем сохранение")
+            logging.info(f"⏭️ Пропуск альбома без текста")
             if os.path.exists(post_folder):
                 shutil.rmtree(post_folder)
             return
@@ -329,18 +317,18 @@ async def save_album(event, post_folder):
         for msg in album_messages:
             if msg.media and isinstance(msg.media, MessageMediaPhoto):
                 photo_count += 1
+                logging.info(f"📥 Скачивание фото {photo_count} из альбома...")
                 file = await msg.download_media(file=os.path.join(post_folder, f"photo_{photo_count}.jpg"))
                 if file:
                     saved_files.append(file)
-                    logging.info(f"Сохранено фото {photo_count} из альбома")
             elif msg.media and hasattr(msg.media, 'document') and msg.media.document.mime_type.startswith('image/'):
                 photo_count += 1
+                logging.info(f"📥 Скачивание фото-документа {photo_count} из альбома...")
                 file = await msg.download_media(file=os.path.join(post_folder, f"photo_{photo_count}.jpg"))
                 if file:
                     saved_files.append(file)
-                    logging.info(f"Сохранено фото-документ {photo_count} из альбома")
             else:
-                logging.info(f"Пропущено не фото медиа из альбома")
+                pass
 
         # Сохраняем текст из сообщения, где он был найден
         if album_text:
@@ -349,16 +337,14 @@ async def save_album(event, post_folder):
             
             with open(os.path.join(post_folder, "text.txt"), "w", encoding="utf-8") as f:
                 f.write(cleaned_text)
-            logging.info("Сохранен очищенный текст в text.txt")
 
             with open(os.path.join(post_folder, "text_close.txt"), "w", encoding="utf-8") as f:
                 f.write(original_text)
-            logging.info("Сохранен оригинальный текст в text_close.txt")
         
-        logging.info(f"Альбом полностью сохранен: {len(saved_files)} фото из {total_photos} сообщений")
+        logging.info(f"✅ Альбом сохранен: {len(saved_files)} фото")
 
     except Exception as e:
-        logging.error(f"Ошибка при сохранении альбома: {e}")
+        logging.error(f"❌ Ошибка при сохранении альбома: {e}")
         if os.path.exists(post_folder):
             shutil.rmtree(post_folder)
 
@@ -367,25 +353,26 @@ async def save_single_photo(event, post_folder):
     try:
         # Проверяем наличие текста
         if not event.text:
-            logging.warning(f"Одиночное фото не содержит текста, пропускаем сохранение")
+            logging.info(f"⏭️ Пропуск фото без текста")
             if os.path.exists(post_folder):
                 shutil.rmtree(post_folder)
             return
 
         # Сохраняем фото
+        logging.info(f"📥 Скачивание фото...")
         saved_file = await event.download_media(file=os.path.join(post_folder, "photo_1.jpg"))
         if saved_file:
-            logging.info(f"Сохранено одиночное фото: {saved_file}")
+            pass
         
         # Сохраняем текст
         with open(os.path.join(post_folder, "text.txt"), "w", encoding="utf-8") as f:
-            f.write(clean_text_for_open(event.text))  # Очищаем текст для открытого канала
+            f.write(clean_text_for_open(event.text))
         with open(os.path.join(post_folder, "text_close.txt"), "w", encoding="utf-8") as f:
-            f.write(event.text)  # Оригинальный текст для закрытого канала
-        logging.info("Сохранен текст для одиночного фото")
+            f.write(event.text)
+        logging.info(f"✅ Фото сохранено")
 
     except Exception as e:
-        logging.error(f"Ошибка при сохранении одиночного фото: {e}")
+        logging.error(f"❌ Ошибка при сохранении фото: {e}")
         if os.path.exists(post_folder):
             shutil.rmtree(post_folder)
 
@@ -394,25 +381,26 @@ async def save_photo_document(event, post_folder):
     try:
         # Проверяем наличие текста
         if not event.text:
-            logging.warning(f"Фото-документ не содержит текста, пропускаем сохранение")
+            logging.info(f"⏭️ Пропуск фото-документа без текста")
             if os.path.exists(post_folder):
                 shutil.rmtree(post_folder)
             return
 
         # Сохраняем фото-документ
+        logging.info(f"📥 Скачивание фото-документа...")
         saved_file = await event.download_media(file=os.path.join(post_folder, "photo_1.jpg"))
         if saved_file:
-            logging.info(f"Сохранен фото-документ: {saved_file}")
+            pass
         
         # Сохраняем текст
         with open(os.path.join(post_folder, "text.txt"), "w", encoding="utf-8") as f:
             f.write(clean_text_for_open(event.text))
         with open(os.path.join(post_folder, "text_close.txt"), "w", encoding="utf-8") as f:
             f.write(event.text)
-        logging.info("Сохранен текст для фото-документа")
+        logging.info(f"✅ Фото-документ сохранен")
 
     except Exception as e:
-        logging.error(f"Ошибка при сохранении фото-документа: {e}")
+        logging.error(f"❌ Ошибка при сохранении фото-документа: {e}")
         if os.path.exists(post_folder):
             shutil.rmtree(post_folder)
 
