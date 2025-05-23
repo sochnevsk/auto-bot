@@ -9,9 +9,11 @@ from telegram.ext import ContextTypes
 from ..states import BotState, PostContext
 from ..keyboards import get_moderate_keyboard
 from ..text_processor import TextProcessor
+from ..decorators import check_moderation_block
 
 logger = logging.getLogger(__name__)
 
+@check_moderation_block
 async def handle_edit_text_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,

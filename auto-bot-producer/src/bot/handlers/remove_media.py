@@ -10,9 +10,11 @@ from telegram.error import TimedOut, NetworkError
 from src.bot.states import BotState
 from src.bot.keyboards import get_moderate_keyboard
 from src.utils.logger import setup_logger
+from src.bot.decorators import check_moderation_block
 
 logger = setup_logger("remove_media_handler")
 
+@check_moderation_block
 async def handle_remove_media_message(update: Update, context: ContextTypes.DEFAULT_TYPE, state_manager, post_context, post_id: str) -> None:
     """
     Обработчик сообщения с номерами фото для удаления.

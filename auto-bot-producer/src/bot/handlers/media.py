@@ -5,6 +5,7 @@ import time
 from telegram import Update, InputMediaPhoto
 from telegram.ext import ContextTypes
 from typing import List, Dict, Optional, Set
+from src.bot.decorators import check_moderation_block
 
 # Глобальные переменные для хранения временных данных
 media_group_temp: Dict[int, Dict[str, List]] = {}  # {user_id: {media_group_id: [photo, ...]}}
@@ -12,10 +13,22 @@ media_group_tasks: Dict[int, Dict[str, asyncio.Task]] = {}  # {user_id: {media_g
 media_group_file_ids: Dict[int, Dict[str, Set[str]]] = {}  # {user_id: {media_group_id: {file_id, ...}}}
 MEDIA_GROUP_TIMEOUT = 9.0  # Таймаут для сбора альбома
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+@check_moderation_block
+async def handle_photo(
+    update: Update, 
+    context: ContextTypes.DEFAULT_TYPE,
+    post_id: Optional[str] = None,
+    operation_context: str = "create"  # "create" или "edit"
+) -> None:
     """
     Обработчик получения фотографий.
     Поддерживает как одиночные фото, так и альбомы.
+    
+    Args:
+        update: Объект обновления
+        context: Контекст бота
+        post_id: ID поста (опционально, для контекста редактирования)
+        operation_context: Контекст операции ("create" или "edit")
     """
     user_id = update.message.from_user.id
     photos = update.message.photo
@@ -56,25 +69,40 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             async def finish_media_group():
                 try:
                     await asyncio.sleep(MEDIA_GROUP_TIMEOUT)
-                    await process_media_group(user_id, media_group_id, context)
+                    await process_media_group(user_id, media_group_id, context, post_id, operation_context)
                 except asyncio.CancelledError:
                     pass
                     
             media_group_tasks[user_id][media_group_id] = asyncio.create_task(finish_media_group())
     else:
         # Обработка одиночного фото
-        await process_single_photo(update, context)
+        await process_single_photo(update, context, post_id, operation_context)
 
-async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+@check_moderation_block
+async def process_single_photo(
+    update: Update, 
+    context: ContextTypes.DEFAULT_TYPE,
+    post_id: Optional[str] = None,
+    operation_context: str = "create"
+) -> None:
     """
     Обработка одиночного фото.
+    
+    Args:
+        update: Объект обновления
+        context: Контекст бота
+        post_id: ID поста (опционально, для контекста редактирования)
+        operation_context: Контекст операции ("create" или "edit")
     """
     user_id = update.message.from_user.id
     photo = update.message.photo[-1]  # Берем фото максимального размера
     
     try:
-        # Создаем директорию для сохранения фото
-        save_dir = f"media/{user_id}"
+        # Определяем директорию для сохранения в зависимости от контекста
+        if operation_context == "edit" and post_id:
+            save_dir = os.path.join("saved", post_id)
+        else:
+            save_dir = f"media/{user_id}"
         os.makedirs(save_dir, exist_ok=True)
         
         # Сохраняем фото
@@ -92,9 +120,23 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         logging.error(f"Ошибка при сохранении фото: {e}")
         await update.message.reply_text("Произошла ошибка при сохранении фото")
 
-async def process_media_group(user_id: int, media_group_id: str, context: ContextTypes.DEFAULT_TYPE) -> None:
+@check_moderation_block
+async def process_media_group(
+    user_id: int, 
+    media_group_id: str, 
+    context: ContextTypes.DEFAULT_TYPE,
+    post_id: Optional[str] = None,
+    operation_context: str = "create"
+) -> None:
     """
     Обработка собранного альбома.
+    
+    Args:
+        user_id: ID пользователя
+        media_group_id: ID группы медиа
+        context: Контекст бота
+        post_id: ID поста (опционально, для контекста редактирования)
+        operation_context: Контекст операции ("create" или "edit")
     """
     if user_id not in media_group_temp or media_group_id not in media_group_temp[user_id]:
         return
@@ -103,8 +145,11 @@ async def process_media_group(user_id: int, media_group_id: str, context: Contex
     saved_paths = []
     
     try:
-        # Создаем директорию для сохранения фото
-        save_dir = f"media/{user_id}"
+        # Определяем директорию для сохранения в зависимости от контекста
+        if operation_context == "edit" and post_id:
+            save_dir = os.path.join("saved", post_id)
+        else:
+            save_dir = f"media/{user_id}"
         os.makedirs(save_dir, exist_ok=True)
         
         # Сохраняем все фото из альбома

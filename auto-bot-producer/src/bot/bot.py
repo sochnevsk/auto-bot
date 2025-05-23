@@ -34,6 +34,8 @@ from src.bot.storage import AsyncFileManager, SentPostsCache
 from src.bot.states import BotState, StateManager, PostContext
 from src.bot.handlers.callback import handle_media_callback
 from src.bot.text_processor import TextProcessor
+from src.bot.moderation_block import check_and_set_moderation_block, remove_moderation_block
+from src.bot.decorators import check_moderation_block
 
 # Настройка логгера
 logger = setup_logger("bot")
@@ -305,7 +307,8 @@ class Bot:
                     message_id=messages[0].message_id,
                     state=BotState.POST_VIEW,
                     original_text=full_text,
-                    original_media=message_ids[:-1]  # Все ID кроме последнего (клавиатуры)
+                    original_media=message_ids[:-1],  # Все ID кроме последнего (клавиатуры)
+                    user_id=None  # Для новых постов user_id пока не известен
                 )
                 logger.info(f"[process_post] Создан новый контекст поста: {post_context}")
                 self.state_manager.set_post_context(post_id, post_context)
@@ -385,8 +388,13 @@ class Bot:
             return
         if post_context and post_context.state == BotState.EDIT_TEXT_WAIT:
             logger.info(f"handle_message: обработка нового текста (state={post_context.state})")
-            # --- обработка нового текста (оставить существующую логику) ---
-            logger.info("Состояние EDIT_TEXT_WAIT подтверждено")
+            
+            # Проверяем, что это тот же пользователь, который начал редактирование
+            if post_context.user_id != update.message.from_user.id:
+                logger.error(f"Пользователь {update.message.from_user.id} не имеет прав для редактирования текста")
+                await update.message.reply_text("❌ У вас нет прав для редактирования текста этого поста.")
+                return
+            
             # Сохраняем ID пользовательского сообщения (текст)
             post_context.user_message_ids.append(update.message.message_id)
             self.state_manager.set_post_context(post_id, post_context)
@@ -534,6 +542,13 @@ class Bot:
             return
         if post_context and post_context.state == BotState.EDIT_MEDIA_REMOVE_WAIT:
             logger.info(f"handle_message: обработка удаления фото (state={post_context.state})")
+            
+            # Проверяем, что это тот же пользователь, который начал редактирование
+            if post_context.user_id != update.message.from_user.id:
+                logger.error(f"Пользователь {update.message.from_user.id} не имеет прав для удаления медиа")
+                await update.message.reply_text("❌ У вас нет прав для удаления медиа из этого поста.")
+                return
+            
             # Сохраняем ID пользовательского сообщения
             post_context.user_message_ids.append(update.message.message_id)
             self.state_manager.set_post_context(post_id, post_context)
@@ -656,12 +671,15 @@ class Bot:
         post_id = None
         # Поиск контекста поста в состоянии EDIT_MEDIA_ADD_WAIT
         for pid, ctx in self.state_manager.get_all_contexts().items():
-            if ctx.chat_id == update.message.chat_id and ctx.state == BotState.EDIT_MEDIA_ADD_WAIT:
+            if (ctx.chat_id == update.message.chat_id and 
+                ctx.state == BotState.EDIT_MEDIA_ADD_WAIT and 
+                ctx.user_id == user_id):  # Проверяем, что это тот же пользователь
                 post_context = ctx
                 post_id = pid
                 break
         if not post_context:
-            logger.error("Контекст поста не найден для добавления медиа")
+            logger.error(f"Контекст поста не найден для добавления медиа или пользователь {user_id} не имеет прав")
+            await update.message.reply_text("❌ У вас нет прав для добавления медиа к этому посту.")
             return
         # Сохраняем ID пользовательского сообщения (фото)
         post_context.user_message_ids.append(update.message.message_id)
@@ -1011,6 +1029,7 @@ class Bot:
                 logger.error(f"Error in periodic check: {e}", exc_info=True)
             await asyncio.sleep(20)  # Проверка каждые 20 секунд
 
+    @check_moderation_block
     async def handle_delete_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Обработчик callback-запросов для удаления поста.
@@ -1058,7 +1077,8 @@ class Bot:
                             message_id=message_ids[0] if message_ids else None,
                             state=BotState.POST_VIEW,
                             original_text=post_info['text'],
-                            original_media=message_ids[:-1] if message_ids else []
+                            original_media=message_ids[:-1] if message_ids else [],
+                            user_id=None  # Для восстановленных постов user_id пока не известен
                         )
                         self.state_manager.set_post_context(post_id, post_context)
                     else:
@@ -1115,6 +1135,8 @@ class Bot:
                     logger.info(f"Информация о посте {post_id} удалена из storage")
                 else:
                     logger.warning(f"Пост {post_id} не найден в storage для удаления")
+            # Удаляем блокировку модерации
+            await remove_moderation_block(post_id)
             # Очищаем контекст
             logger.info("Очистка контекста поста")
             self.state_manager.clear_post_context(post_id)
@@ -1132,6 +1154,7 @@ class Bot:
                 text="❌ Произошла ошибка при удалении поста"
             )
 
+    @check_moderation_block
     async def handle_moderate_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Обработчик callback-запросов для модерации поста.
@@ -1147,6 +1170,8 @@ class Bot:
         logger.info(f"Callback query: {query.data}")
         logger.info(f"Message ID: {query.message.message_id}")
         logger.info(f"Chat ID: {query.message.chat_id}")
+        logger.info(f"User ID: {query.from_user.id}")
+        logger.info(f"User name: {query.from_user.full_name}")
         
         try:
             # Получаем post_id из callback_data
@@ -1172,7 +1197,7 @@ class Bot:
                     text="❌ Не удалось определить ID поста"
                 )
                 return
-            
+                
             # Получаем контекст поста
             post_context = self.state_manager.get_post_context(post_id)
             logger.info(f"Контекст поста из памяти: {post_context}")
@@ -1198,14 +1223,15 @@ class Bot:
                                 text="❌ Не удалось найти сообщения поста"
                             )
                             return
-                        
+                            
                         post_context = PostContext(
                             post_id=post_id,
                             chat_id=post_info['chat_id'],
                             message_id=message_ids[0],  # ID первого сообщения с фото
                             state=BotState.POST_VIEW,
                             original_text=post_info['text'],
-                            original_media=message_ids[:-1]  # Все ID кроме последнего (клавиатуры)
+                            original_media=message_ids[:-1],  # Все ID кроме последнего (клавиатуры)
+                            user_id=None  # Для восстановленных постов user_id пока не известен
                         )
                         self.state_manager.set_post_context(post_id, post_context)
                         logger.info(f"Контекст поста {post_id} восстановлен из storage: {post_context}")
@@ -1236,7 +1262,7 @@ class Bot:
                     text="❌ Произошла ошибка при обновлении клавиатуры"
                 )
                 return
-            
+                
             # Обновляем состояние поста
             post_context.state = BotState.MODERATE_MENU
             self.state_manager.set_post_context(post_id, post_context)
@@ -1285,7 +1311,8 @@ class Bot:
                             message_id=post_info['message_ids'][0],
                             state=BotState.MODERATE_MENU,
                             original_text=post_info['text'],
-                            original_media=post_info['message_ids'][:-1]
+                            original_media=post_info['message_ids'][:-1],
+                            user_id=None  # Для восстановленных постов user_id пока не известен
                         )
                         self.state_manager.set_post_context(post_id, post_context)
                         logger.info(f"Контекст поста {post_id} восстановлен из storage: {post_context}")
@@ -1454,7 +1481,8 @@ class Bot:
                         message_id=message_ids[0] if message_ids else None,
                         state=BotState.POST_VIEW,
                         original_text=post_info['text'],
-                        original_media=message_ids[:-1] if message_ids else []
+                        original_media=message_ids[:-1] if message_ids else [],
+                        user_id=None  # Для восстановленных постов user_id пока не известен
                     )
                     self.state_manager.set_post_context(post_id, post_context)
         if post_context:
@@ -1521,6 +1549,9 @@ class Bot:
                 else:
                     logger.warning(f"Пост {post_id} не найден в storage для удаления")
             
+            # Удаляем блокировку модерации
+            await remove_moderation_block(post_id)
+            
             # Очищаем контекст
             logger.info("Очистка контекста поста")
             self.state_manager.clear_post_context(post_id)
@@ -1534,6 +1565,7 @@ class Bot:
             
             logger.info("=== Завершение обработки callback-запроса на удаление ===")
 
+    @check_moderation_block
     async def handle_publish_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Обработчик callback-запросов для публикации поста.
@@ -1577,6 +1609,7 @@ class Bot:
                 text="❌ Произошла ошибка при обработке публикации"
             )
 
+    @check_moderation_block
     async def handle_edit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик нажатия на кнопку 'Редактировать' или 'Назад' из меню медиа."""
         logger.info("=== Начало обработки callback-запроса на редактирование ===")
@@ -1595,6 +1628,10 @@ class Bot:
             logger.error(f"Контекст поста {post_id} не найден")
             await query.message.edit_text("Ошибка: пост не найден")
             return
+        
+        # Устанавливаем user_id в контекст поста
+        post_context.user_id = query.from_user.id
+        logger.info(f"Установлен user_id={post_context.user_id} для поста {post_id}")
         
         # Проверяем текущее состояние
         logger.info(f"Текущее состояние поста: {post_context.state}")
@@ -1630,6 +1667,7 @@ class Bot:
         logger.info(f"Пост {post_id} переведен в состояние {BotState.EDIT_MENU}")
         logger.info("=== Завершение обработки callback-запроса на редактирование ===")
 
+    @check_moderation_block
     async def handle_edit_text_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик нажатия на кнопку 'Текст'."""
         logger.info("=== Начало обработки callback-запроса на редактирование текста ===")
@@ -1649,6 +1687,10 @@ class Bot:
             logger.error(f"Контекст поста {post_id} не найден")
             await query.message.edit_text("Ошибка: пост не найден")
             return
+        
+        # Устанавливаем user_id в контекст поста
+        post_context.user_id = query.from_user.id
+        logger.info(f"Установлен user_id={post_context.user_id} для поста {post_id}")
         
         # Проверяем текущее состояние
         logger.info(f"Текущее состояние поста: {post_context.state}")
@@ -1676,6 +1718,7 @@ class Bot:
         logger.info(f"Пост {post_id} переведен в состояние {BotState.EDIT_TEXT_WAIT}")
         logger.info("=== Завершение обработки callback-запроса на редактирование текста ===")
 
+    @check_moderation_block
     async def handle_edit_media_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Обработчик callback-запроса для кнопки "Медиа" (editmedia_{post_id})
@@ -1695,6 +1738,10 @@ class Bot:
             await query.message.edit_text("Ошибка: пост не найден")
             return
         
+        # Устанавливаем user_id в контекст поста
+        post_context.user_id = query.from_user.id
+        logger.info(f"Установлен user_id={post_context.user_id} для поста {post_id}")
+        
         logger.info(f"Текущее состояние поста: {post_context.state}")
         logger.info(f"Перевод поста в состояние {BotState.EDIT_MEDIA_MENU}")
         old_state = post_context.state
@@ -1709,6 +1756,7 @@ class Bot:
         )
         logger.info(f"=== Завершение обработки editmedia для поста {post_id} ===")
 
+    @check_moderation_block
     async def handle_add_media_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Обработчик callback-запроса для кнопки "Добавить" (addmedia_{post_id})
@@ -1727,6 +1775,10 @@ class Bot:
             logger.error(f"Контекст поста {post_id} не найден")
             await query.message.edit_text("Ошибка: пост не найден")
             return
+        
+        # Устанавливаем user_id в контекст поста
+        post_context.user_id = query.from_user.id
+        logger.info(f"Установлен user_id={post_context.user_id} для поста {post_id}")
         
         logger.info(f"Текущее состояние поста: {post_context.state}")
         logger.info(f"Перевод поста в состояние {BotState.EDIT_MEDIA_ADD_WAIT}")
@@ -1751,6 +1803,7 @@ class Bot:
         self.state_manager.set_post_context(post_id, post_context)
         logger.info(f"=== Завершение обработки addmedia для поста {post_id} ===")
 
+    @check_moderation_block
     async def handle_remove_media_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Обработчик callback-запроса для кнопки "Удалить" (removemedia_{post_id})
@@ -1769,6 +1822,10 @@ class Bot:
             logger.error(f"Контекст поста {post_id} не найден")
             await query.message.edit_text("Ошибка: пост не найден")
             return
+        
+        # Устанавливаем user_id в контекст поста
+        post_context.user_id = query.from_user.id
+        logger.info(f"Установлен user_id={post_context.user_id} для поста {post_id}")
         
         logger.info(f"Текущее состояние поста: {post_context.state}")
         logger.info(f"Перевод поста в состояние {BotState.EDIT_MEDIA_REMOVE_WAIT}")

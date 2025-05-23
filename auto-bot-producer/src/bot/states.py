@@ -41,6 +41,7 @@ class PostContext:
     state: BotState
     original_text: str
     original_media: List[int]
+    user_id: Optional[int] = None  # ID пользователя, который редактирует пост
     temp_text: Optional[str] = None
     temp_media: Optional[List[int]] = None
     media_to_remove: Optional[List[int]] = None

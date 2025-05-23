@@ -27,4 +27,11 @@ Thumbs.db
 
 # Project specific
 anon.session
+cache/
+storage.json
+saved/
+*.session
+*.session-journal
+
+# Project specific
 cache/ 
