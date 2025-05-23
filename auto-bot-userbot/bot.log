@@ -1,0 +1,60 @@
+2025-05-23 02:56:55,152 - INFO - Запуск юзербота...
+2025-05-23 02:56:55,152 - INFO - Connecting to 149.154.167.51:443/TcpFull...
+2025-05-23 02:56:55,153 - INFO - Connection to 149.154.167.51:443/TcpFull complete!
+2025-05-23 02:56:55,570 - INFO - Бот успешно подключен к Telegram
+2025-05-23 02:57:09,251 - INFO - Starting direct file download in chunks of 131072 at 0, stride 131072
+2025-05-23 02:57:09,305 - INFO - Starting direct file download in chunks of 131072 at 0, stride 131072
+2025-05-23 02:57:09,492 - INFO - ✅ Сохранено фото 1 из альбома
+2025-05-23 02:57:09,492 - INFO - Starting direct file download in chunks of 131072 at 0, stride 131072
+2025-05-23 02:57:09,533 - INFO - ✅ Сохранено фото 1 из альбома
+2025-05-23 02:57:09,534 - INFO - Starting direct file download in chunks of 131072 at 0, stride 131072
+2025-05-23 02:57:09,673 - INFO - ✅ Сохранено фото 2 из альбома
+2025-05-23 02:57:09,704 - INFO - ✅ Сохранен текст альбома
+2025-05-23 02:57:09,711 - INFO - ✅ Сохранено фото 2 из альбома
+2025-05-23 02:57:09,713 - INFO - ✅ Сохранен текст альбома
+2025-05-23 03:03:06,114 - INFO - Получен сигнал SIGINT
+2025-05-23 03:03:06,117 - INFO - Получен сигнал SIGINT...
+2025-05-23 03:03:06,117 - INFO - Отключаем клиента Telegram...
+2025-05-23 03:03:06,117 - INFO - Disconnecting from 149.154.167.51:443/TcpFull...
+2025-05-23 03:03:06,118 - INFO - Disconnection from 149.154.167.51:443/TcpFull complete!
+2025-05-23 03:03:06,118 - INFO - Not disconnecting (already have no connection)
+2025-05-23 03:03:06,123 - INFO - Not disconnecting (already have no connection)
+2025-05-23 03:03:06,126 - INFO - Not disconnecting (already have no connection)
+2025-05-23 03:03:06,129 - INFO - Бот полностью остановлен
+2025-05-23 03:18:34,016 - INFO - Запуск юзербота...
+2025-05-23 03:18:34,017 - INFO - Connecting to 149.154.167.51:443/TcpFull...
+2025-05-23 03:18:34,018 - INFO - Connection to 149.154.167.51:443/TcpFull complete!
+2025-05-23 03:18:34,449 - INFO - Бот успешно подключен к Telegram
+2025-05-23 03:18:52,811 - INFO - 📦 Обработка альбома из канала Tester
+2025-05-23 03:18:52,812 - INFO - ⏭️ Медиа -1002533650006_13983676262211874 уже было обработано
+2025-05-23 03:18:53,006 - INFO - 📥 Скачивание фото 1 из альбома...
+2025-05-23 03:18:53,007 - INFO - Starting direct file download in chunks of 131072 at 0, stride 131072
+2025-05-23 03:18:53,307 - INFO - 📥 Скачивание фото 2 из альбома...
+2025-05-23 03:18:53,308 - INFO - Starting direct file download in chunks of 131072 at 0, stride 131072
+2025-05-23 03:18:53,516 - INFO - ✅ Альбом сохранен: 2 фото
+2025-05-23 03:18:53,518 - INFO - ✅ Пост успешно сохранен в /tmp/ololo/post_20250523_031852_2702
+2025-05-23 03:21:12,635 - INFO - Получен сигнал SIGINT
+2025-05-23 03:21:12,646 - INFO - Получен сигнал SIGINT...
+2025-05-23 03:21:12,647 - INFO - Отключаем клиента Telegram...
+2025-05-23 03:21:12,648 - INFO - Disconnecting from 149.154.167.51:443/TcpFull...
+2025-05-23 03:21:12,650 - INFO - Disconnection from 149.154.167.51:443/TcpFull complete!
+2025-05-23 03:21:12,651 - INFO - Not disconnecting (already have no connection)
+2025-05-23 03:21:12,657 - INFO - Not disconnecting (already have no connection)
+2025-05-23 03:21:12,660 - INFO - Not disconnecting (already have no connection)
+2025-05-23 03:21:12,662 - INFO - Бот полностью остановлен
+2025-05-23 03:21:14,987 - INFO - Загружено 1 элементов из /Users/sochnevsk/auto_bot/auto-bot-userbot/cache/processed_media.json
+2025-05-23 03:21:14,988 - INFO - Загружено 1 элементов из /Users/sochnevsk/auto_bot/auto-bot-userbot/cache/processed_albums.json
+2025-05-23 03:21:14,988 - INFO - Запуск юзербота...
+2025-05-23 03:21:14,989 - INFO - Connecting to 149.154.167.51:443/TcpFull...
+2025-05-23 03:21:14,990 - INFO - Connection to 149.154.167.51:443/TcpFull complete!
+2025-05-23 03:21:15,480 - INFO - Бот успешно подключен к Telegram
+2025-05-23 03:22:14,992 - WARNING - Server closed the connection: 0 bytes read on a total of 8 expected bytes
+2025-05-23 03:22:14,993 - INFO - Connection closed while receiving data: 0 bytes read on a total of 8 expected bytes
+2025-05-23 03:22:14,993 - INFO - Closing current connection to begin reconnect...
+2025-05-23 03:22:14,994 - INFO - Connecting to 149.154.167.51:443/TcpFull...
+2025-05-23 03:22:14,995 - INFO - Connection to 149.154.167.51:443/TcpFull complete!
+2025-05-23 03:23:15,040 - WARNING - Server closed the connection: 0 bytes read on a total of 8 expected bytes
+2025-05-23 03:23:15,046 - INFO - Connection closed while receiving data: 0 bytes read on a total of 8 expected bytes
+2025-05-23 03:23:15,046 - INFO - Closing current connection to begin reconnect...
+2025-05-23 03:23:15,047 - INFO - Connecting to 149.154.167.51:443/TcpFull...
+2025-05-23 03:23:15,048 - INFO - Connection to 149.154.167.51:443/TcpFull complete!
