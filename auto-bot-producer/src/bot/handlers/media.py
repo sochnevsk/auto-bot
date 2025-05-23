@@ -6,6 +6,7 @@ from telegram import Update, InputMediaPhoto
 from telegram.ext import ContextTypes
 from typing import List, Dict, Optional, Set
 from src.bot.decorators import check_moderation_block
+from src.bot.keyboards import get_media_confirm_keyboard
 
 # Глобальные переменные для хранения временных данных
 media_group_temp: Dict[int, Dict[str, List]] = {}  # {user_id: {media_group_id: [photo, ...]}}

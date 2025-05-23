@@ -69,9 +69,17 @@ def check_moderation_block(func: Callable) -> Callable:
         blocked_user_id = await check_and_set_moderation_block(post_id, query.from_user.id)
         if blocked_user_id is not None and blocked_user_id != query.from_user.id:
             logger.warning(f"Пост {post_id} уже заблокирован пользователем {blocked_user_id}")
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=f"⚠️ Этот пост уже модерируется другим пользователем (ID: {blocked_user_id})"
+            # Получаем информацию о пользователе
+            try:
+                user = await context.bot.get_chat_member(chat_id=update.effective_chat.id, user_id=blocked_user_id)
+                user_name = user.user.full_name or user.user.username or f"Пользователь {blocked_user_id}"
+            except Exception as e:
+                logger.error(f"Ошибка при получении информации о пользователе: {e}")
+                user_name = f"Пользователь {blocked_user_id}"
+
+            await update.callback_query.answer(
+                text=f"⚠️ Этот пост уже модерируется пользователем {user_name}",
+                show_alert=True
             )
             return
             

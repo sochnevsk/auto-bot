@@ -392,7 +392,7 @@ class Bot:
             # Проверяем, что это тот же пользователь, который начал редактирование
             if post_context.user_id != update.message.from_user.id:
                 logger.error(f"Пользователь {update.message.from_user.id} не имеет прав для редактирования текста")
-                await update.message.reply_text("❌ У вас нет прав для редактирования текста этого поста.")
+                await update.message.reply_text("❌ Действие отменено. Работает модератор {post_context.user_id}")
                 return
             
             # Сохраняем ID пользовательского сообщения (текст)
@@ -546,7 +546,7 @@ class Bot:
             # Проверяем, что это тот же пользователь, который начал редактирование
             if post_context.user_id != update.message.from_user.id:
                 logger.error(f"Пользователь {update.message.from_user.id} не имеет прав для удаления медиа")
-                await update.message.reply_text("❌ У вас нет прав для удаления медиа из этого поста.")
+                await update.message.reply_text("❌ Действие отменено. Работает модератор {post_context.user_id}")
                 return
             
             # Сохраняем ID пользовательского сообщения
@@ -679,7 +679,7 @@ class Bot:
                 break
         if not post_context:
             logger.error(f"Контекст поста не найден для добавления медиа или пользователь {user_id} не имеет прав")
-            await update.message.reply_text("❌ У вас нет прав для добавления медиа к этому посту.")
+            await update.message.reply_text("❌ Действие отменено. Работает модератор {post_context.user_id}")
             return
         # Сохраняем ID пользовательского сообщения (фото)
         post_context.user_message_ids.append(update.message.message_id)
