@@ -196,26 +196,23 @@ async def save_channel_message(event):
             # Для альбомов используем только grouped_id
             if event.grouped_id:
                 album_key = f"{event.chat_id}_{event.grouped_id}"
-                if album_key in processed_albums:
+                if album_key in processed_albums or not processed_albums.add(album_key):
                     logging.info(f"⏭️ Альбом {album_key} уже был обработан")
                     return
-                processed_albums.add(album_key)
             # Для одиночных медиа используем id
             else:
                 media_key = f"{event.chat_id}_{event.id}"
-                if media_key in processed_media:
+                if media_key in processed_media or not processed_media.add(media_key):
                     logging.info(f"⏭️ Медиа {media_key} уже было обработано")
                     return
-                processed_media.add(media_key)
             
         # Для фото-документов проверяем, не был ли он уже обработан
         if event.media and hasattr(event.media, 'document'):
             if event.media.document.mime_type.startswith('image/'):
                 doc_key = f"{event.chat_id}_{event.id}"
-                if doc_key in processed_documents:
+                if doc_key in processed_documents or not processed_documents.add(doc_key):
                     logging.info(f"⏭️ Фото-документ {doc_key} уже был обработан")
                     return
-                processed_documents.add(doc_key)
 
         # Создаем папку для поста с ID сообщения
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
