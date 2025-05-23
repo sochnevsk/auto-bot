@@ -193,25 +193,20 @@ async def save_channel_message(event):
 
         # Проверяем, не был ли пост уже обработан
         if event.media:
-            # Для альбомов используем grouped_id
+            # Для альбомов используем только grouped_id
             if event.grouped_id:
-                media_key = f"{event.chat_id}_{event.grouped_id}"
+                album_key = f"{event.chat_id}_{event.grouped_id}"
+                if album_key in processed_albums:
+                    logging.info(f"⏭️ Альбом {album_key} уже был обработан")
+                    return
+                processed_albums.add(album_key)
             # Для одиночных медиа используем id
             else:
                 media_key = f"{event.chat_id}_{event.id}"
-            
-            if media_key in processed_media:
-                logging.info(f"⏭️ Медиа {media_key} уже было обработано")
-                return
-            processed_media.add(media_key)
-
-        # Для альбомов проверяем, не был ли он уже обработан
-        if event.grouped_id:
-            album_key = f"{event.chat_id}_{event.grouped_id}"
-            if album_key in processed_albums:
-                logging.info(f"⏭️ Альбом {album_key} уже был обработан")
-                return
-            processed_albums.add(album_key)
+                if media_key in processed_media:
+                    logging.info(f"⏭️ Медиа {media_key} уже было обработано")
+                    return
+                processed_media.add(media_key)
             
         # Для фото-документов проверяем, не был ли он уже обработан
         if event.media and hasattr(event.media, 'document'):
