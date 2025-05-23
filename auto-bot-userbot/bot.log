@@ -477,3 +477,5 @@
 2025-05-23 17:14:37,554 - INFO - Starting direct file download in chunks of 131072 at 0, stride 131072
 2025-05-23 17:14:37,757 - INFO - ✅ Альбом сохранен: 7 фото
 2025-05-23 17:14:37,758 - INFO - ✅ Пост успешно сохранен в /tmp/ololo/post_20250523_171436_2976
+2025-05-23 17:28:25,901 - INFO - Got difference for account updates
+2025-05-23 17:43:14,434 - INFO - Got difference for account updates
