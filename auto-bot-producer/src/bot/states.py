@@ -3,11 +3,15 @@
 """
 from enum import Enum, auto
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict
-import logging
+from typing import List, Optional, Dict, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .states import ChatContext
+
+from src.utils.logger import setup_logger
 
 # Настройка логгера
-logger = logging.getLogger("bot")
+logger = setup_logger("states")
 
 
 class BotState(str, Enum):
@@ -55,6 +59,7 @@ class StateManager:
     def __init__(self):
         """Инициализация менеджера состояний."""
         self._post_contexts: Dict[str, PostContext] = {}
+        self._chat_contexts: Dict[int, 'ChatContext'] = {}  # Используем строковую аннотацию
         logger.info("StateManager инициализирован")
     
     def get_post_context(self, post_id: str) -> Optional[PostContext]:
@@ -116,6 +121,64 @@ class StateManager:
             logger.info(f"Контекст поста {post_id} успешно очищен")
         else:
             logger.warning(f"Контекст поста {post_id} не найден для очистки")
+
+    def get_chat_context(self, chat_id: int) -> Optional['ChatContext']:
+        """
+        Получение контекста чата.
+        
+        Args:
+            chat_id: ID чата
+            
+        Returns:
+            Optional[ChatContext]: Контекст чата или None
+        """
+        context = self._chat_contexts.get(chat_id)
+        if context:
+            logger.info(f"Получен контекст чата {chat_id}")
+        return context
+
+    def set_chat_context(self, chat_id: int, context: 'ChatContext') -> None:
+        """
+        Установка контекста чата.
+        
+        Args:
+            chat_id: ID чата
+            context: Контекст чата
+        """
+        self._chat_contexts[chat_id] = context
+        logger.info(f"Контекст чата {chat_id} обновлен")
+
+    def clear_chat_context(self, chat_id: int) -> None:
+        """
+        Очищает контекст чата.
+        
+        Args:
+            chat_id: ID чата
+        """
+        logger.info(f"Очистка контекста чата {chat_id}")
+        if chat_id in self._chat_contexts:
+            del self._chat_contexts[chat_id]
+            logger.info(f"Контекст чата {chat_id} успешно очищен")
+        else:
+            logger.warning(f"Контекст чата {chat_id} не найден для очистки")
+
+
+class ChatContext:
+    def __init__(self, chat_id: int):
+        self.chat_id = chat_id
+        self.is_moderating = False
+        self.pending_posts = set()  # Множество для хранения ID ожидающих постов
+
+    async def start_moderation(self):
+        """Начать модерацию в чате"""
+        self.is_moderating = True
+        logger.info(f"Начата модерация в чате {self.chat_id}")
+
+    async def end_moderation(self):
+        """Завершить модерацию в чате"""
+        self.is_moderating = False
+        self.pending_posts.clear()  # Очищаем список ожидающих постов
+        logger.info(f"Завершена модерация в чате {self.chat_id}")
 
 
 """
