@@ -3,6 +3,7 @@
 """
 import os
 import logging
+import re
 from telegram import Update, InputMediaPhoto
 from telegram.ext import ContextTypes
 
@@ -10,6 +11,7 @@ from ..states import BotState, PostContext
 from ..keyboards import get_moderate_keyboard
 from ..text_processor import TextProcessor
 from ..decorators import check_moderation_block
+from src.utils.telegram_format import entities_to_html
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +29,9 @@ async def handle_edit_text_message(
     # Создаем экземпляр TextProcessor
     text_processor = TextProcessor()
     
-    # Обрабатываем новый текст с учетом лимитов
-    processed_text, was_truncated = await text_processor.process_text(update.message.text)
+    # Получаем текст с форматированием
+    html_text = entities_to_html(update.message.text, update.message.entities)
+    processed_text, was_truncated = await text_processor.process_text(html_text)
     if was_truncated:
         logger.info("Текст был обрезан из-за превышения лимита")
         await update.message.reply_text("⚠️ Текст был обрезан из-за превышения лимита Telegram")
@@ -109,7 +112,8 @@ async def handle_edit_text_message(
                 
     messages = await context.bot.send_media_group(
         chat_id=post_context.chat_id,
-        media=media_group
+        media=media_group,
+        parse_mode='HTML'
     )
     logger.info("Новый пост успешно отправлен")
     
@@ -126,10 +130,10 @@ async def handle_edit_text_message(
         chat_id=post_context.chat_id,
         text="Выберите действие для поста:",
         reply_markup=get_moderate_keyboard(post_id),
-        read_timeout=20,
-        write_timeout=15,
-        connect_timeout=15,
-        pool_timeout=15
+        read_timeout=17,
+        write_timeout=12,
+        connect_timeout=12,
+        pool_timeout=12
     )
     post_context.service_messages.append(keyboard_message.message_id)
     state_manager.set_post_context(post_id, post_context)
