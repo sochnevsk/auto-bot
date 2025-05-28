@@ -723,7 +723,9 @@ class Bot:
         del media_group_temp[user_id][media_group_id]
         del media_group_tasks[user_id][media_group_id]
         logger.info(f"Пост {post_id} обновлён с новыми фото (альбом)")
-        await context.bot.send_message(chat_id=post_context.chat_id, text="✅ Фото успешно добавлены к посту!")
+        success_message = await context.bot.send_message(chat_id=post_context.chat_id, text="✅ Фото успешно добавлены к посту!")
+        post_context.service_messages.append(success_message.message_id)
+        self.state_manager.set_post_context(post_id, post_context)
         logger.info(f"=== finalize_media_add_album: завершено для post_id={post_id} ===")
 
     async def finalize_media_add_single(self, update, context, post_context):
@@ -751,16 +753,19 @@ class Bot:
         # Удаляем только старые сообщения с медиа
         logger.info("Удаление старых сообщений с медиа")
         for message_id in post_context.original_media:
+            logger.info(f"Удаление медиа-сообщения {message_id}")
             await self._safe_delete_message(context, post_context.chat_id, message_id)
         
         # Удаляем только служебные сообщения, связанные с редактированием
         logger.info("Удаление служебных сообщений")
         for message_id in post_context.service_messages:
+            logger.info(f"Удаление служебного сообщения {message_id}")
             await self._safe_delete_message(context, post_context.chat_id, message_id)
         
         # Очищаем списки сообщений
         post_context.original_media = []
         post_context.service_messages = []
+        logger.info("Списки сообщений очищены")
         
         # Отправляем новый пост
         media_group = []
@@ -779,6 +784,7 @@ class Bot:
         
         message_ids = [msg.message_id for msg in messages]
         post_context.original_media = message_ids
+        logger.info(f"Добавлены новые медиа-сообщения: {message_ids}")
         
         # Клавиатура
         keyboard_message = await self._safe_send_message(
@@ -789,15 +795,20 @@ class Bot:
         )
         
         post_context.service_messages.append(keyboard_message.message_id)
+        logger.info(f"Добавлено сообщение с клавиатурой: {keyboard_message.message_id}")
+        
         post_context.state = BotState.MODERATE_MENU
         self.state_manager.set_post_context(post_id, post_context)
         
         logger.info(f"Пост {post_id} обновлён с новым фото (одиночное)")
-        await self._safe_send_message(
+        success_message = await self._safe_send_message(
             context=context,
             chat_id=post_context.chat_id,
             text="✅ Фото успешно добавлены к посту!"
         )
+        post_context.service_messages.append(success_message.message_id)
+        logger.info(f"Добавлено сообщение об успехе: {success_message.message_id}")
+        self.state_manager.set_post_context(post_id, post_context)
         logger.info(f"=== finalize_media_add_single: завершено для post_id={post_id} ===")
 
     async def check_posts(self, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1752,6 +1763,8 @@ class Bot:
                     await asyncio.sleep(1 - time_since_last)
             
             logger.info(f"Попытка удаления сообщения {message_id} в чате {chat_id}")
+            logger.info(f"Текущее время последнего запроса: {self.last_request_time.get(chat_id, 'нет')}")
+            
             # Удаляем сообщение
             await context.bot.delete_message(
                 chat_id=chat_id,
@@ -1761,13 +1774,15 @@ class Bot:
             
             # Обновляем время последнего запроса
             self.last_request_time[chat_id] = time.time()
+            logger.info(f"Обновлено время последнего запроса для чата {chat_id}: {self.last_request_time[chat_id]}")
             
         except RetryAfter as e:
             logger.warning(f"Превышен лимит запросов, ожидание {e.retry_after} секунд")
             await asyncio.sleep(e.retry_after)
             return await self._safe_delete_message(context, chat_id, message_id)
         except Exception as e:
-            logger.error(f"Ошибка при удалении сообщения {message_id}: {e}")
+            logger.error(f"Ошибка при удалении сообщения {message_id} в чате {chat_id}: {e}")
+            logger.error(f"Тип ошибки: {type(e).__name__}")
             # Не пробрасываем ошибку дальше, так как это не критично
 
     async def _safe_send_media_group(self, context, chat_id, media, **kwargs):
