@@ -31,7 +31,7 @@ from src.bot.keyboards import (
     get_moderate_keyboard
 )
 from src.bot.storage import AsyncFileManager, SentPostsCache
-from src.bot.states import BotState, StateManager, PostContext
+from src.bot.states import BotState, StateManager, PostContext, ChatContext
 from src.bot.handlers.callback import handle_media_callback
 from src.bot.text_processor import TextProcessor
 from src.bot.moderation_block import check_and_set_moderation_block, remove_moderation_block
@@ -250,10 +250,10 @@ class Bot:
                     chat_id=settings.MODERATOR_GROUP_ID,
                     text=f"Выберите действие для поста \n{source_info}:",
                     reply_markup=get_post_keyboard(post_id),
-                    read_timeout=20,
-                    write_timeout=15,
-                    connect_timeout=15,
-                    pool_timeout=15
+                    read_timeout=17,
+                    write_timeout=12,
+                    connect_timeout=12,
+                    pool_timeout=12
                 )
 
                 # Сохраняем информацию о посте
@@ -455,10 +455,10 @@ class Bot:
                     chat_id=post_context.chat_id,
                     text=f"Выберите действие для поста \n{source_info}:",
                     reply_markup=get_moderate_keyboard(post_id),
-                    read_timeout=20,
-                    write_timeout=15,
-                    connect_timeout=15,
-                    pool_timeout=15
+                    read_timeout=17,
+                    write_timeout=12,
+                    connect_timeout=12,
+                    pool_timeout=12
                 )
 
                 # Сохраняем ID сообщения с клавиатурой в service_messages
@@ -595,10 +595,10 @@ class Bot:
                 chat_id=post_context.chat_id,
                 text="Выберите действие для поста:",
                 reply_markup=get_moderate_keyboard(post_id),
-                read_timeout=20,
-                write_timeout=15,
-                connect_timeout=15,
-                pool_timeout=15
+                read_timeout=17,
+                write_timeout=12,
+                connect_timeout=12,
+                pool_timeout=12
             )
             post_context.service_messages.append(keyboard_message.message_id)
             post_context.state = BotState.MODERATE_MENU
@@ -711,10 +711,10 @@ class Bot:
             chat_id=post_context.chat_id,
             text="Выберите действие для поста:",
             reply_markup=get_moderate_keyboard(post_id),
-            read_timeout=20,
-            write_timeout=15,
-            connect_timeout=15,
-            pool_timeout=15
+            read_timeout=17,
+            write_timeout=12,
+            connect_timeout=12,
+            pool_timeout=12
         )
         post_context.service_messages.append(keyboard_message.message_id)
         post_context.state = BotState.MODERATE_MENU
@@ -813,16 +813,15 @@ class Bot:
 
     async def check_posts(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
-        Периодическая проверка постов.
-
-        Args:
-            context: Контекст бота
+        Периодическая проверка новых постов.
         """
         if self.is_checking:
-            logger.info("[check_posts] Предыдущая проверка все еще выполняется, пропускаем")
+            logger.info("[check_posts] Проверка уже выполняется, пропускаем")
             return
-
+            
         self.is_checking = True
+        logger.info("[check_posts] Начало проверки новых постов")
+        
         try:
             logger.info("[check_posts] Начало периодической проверки постов")
 
@@ -844,6 +843,56 @@ class Bot:
                 return
 
             logger.info(f"[check_posts] Найдено {len(post_dirs)} директорий с постами")
+
+            # Получаем контекст чата для модераторской группы
+            chat_context = self.state_manager.get_chat_context(settings.MODERATOR_GROUP_ID)
+            if not chat_context:
+                chat_context = ChatContext(settings.MODERATOR_GROUP_ID)
+                self.state_manager.set_chat_context(settings.MODERATOR_GROUP_ID, chat_context)
+                logger.info(f"[check_posts] Создан новый контекст чата для {settings.MODERATOR_GROUP_ID}")
+
+            # Проверяем, не идет ли модерация
+            logger.info(f"[check_posts] Состояние модерации для чата {settings.MODERATOR_GROUP_ID}: is_moderating={chat_context.is_moderating}")
+            if chat_context.is_moderating:
+                logger.info(f"[check_posts] В чате {settings.MODERATOR_GROUP_ID} идет модерация, пропускаем новые посты")
+                # Собираем ID постов, которые ожидают отправки
+                pending_posts = set()
+                for post_dir in post_dirs:
+                    post_id = os.path.basename(post_dir)
+                    logger.info(f"[check_posts] Проверка поста {post_id} на наличие в pending_posts")
+                    
+                    # Проверяем, не был ли пост уже отправлен
+                    if await self.is_post_sent(post_id):
+                        logger.info(f"[check_posts] Пост {post_id} уже отправлен, пропускаем")
+                        continue
+                        
+                    # Проверяем, есть ли пост в storage
+                    async with AsyncFileManager(STORAGE_PATH) as storage:
+                        data = await storage.read()
+                        if post_id in data:
+                            logger.info(f"[check_posts] Пост {post_id} уже есть в storage, пропускаем")
+                            continue
+                    
+                    if post_id not in chat_context.pending_posts:  # Проверяем, не был ли пост уже учтен
+                        logger.info(f"[check_posts] Пост {post_id} добавлен в pending_posts")
+                        pending_posts.add(post_id)
+                    else:
+                        logger.info(f"[check_posts] Пост {post_id} уже есть в pending_posts")
+                
+                # Добавляем новые посты в множество ожидающих
+                chat_context.pending_posts.update(pending_posts)
+                logger.info(f"[check_posts] Обновлен список pending_posts: {chat_context.pending_posts}")
+                
+                # Отправляем сообщение только если есть новые посты
+                if pending_posts:
+                    total_pending = len(chat_context.pending_posts)
+                    logger.info(f"[check_posts] Отправка уведомления о {len(pending_posts)} новых ожидающих постах (всего в очереди: {total_pending})")
+                    await self._safe_send_message(
+                        context=context,
+                        chat_id=settings.MODERATOR_GROUP_ID,
+                        text=f"⏳ Ожидаются новые предложения после модерации ({total_pending})"
+                    )
+                return
 
             # Обрабатываем каждый пост
             success_count = 0
@@ -1017,18 +1066,16 @@ class Bot:
         await query.answer()
         
         try:
-            # Получаем post_id из callback_data
             callback_data = query.data
             if not callback_data.startswith("delete_"):
-                logger.error(f"Неверный формат callback_data: {callback_data}")
                 await context.bot.send_message(
                     chat_id=query.message.chat_id,
                     text="❌ Неверный формат данных"
                 )
                 return
+                
             post_id = callback_data.replace("delete_", "")
             if not post_id:
-                logger.error("post_id пустой")
                 await context.bot.send_message(
                     chat_id=query.message.chat_id,
                     text="❌ Не удалось определить ID поста"
@@ -1100,12 +1147,22 @@ class Bot:
             # Удаляем блокировку модерации
             await remove_moderation_block(post_id)
             # Очищаем контекст
+            logger.info("Очистка контекста поста")
             self.state_manager.clear_post_context(post_id)
+            # Сбрасываем флаг модерации
+            chat_context = self.state_manager.get_chat_context(post_context.chat_id)
+            if chat_context:
+                await chat_context.end_moderation()
+                self.state_manager.set_chat_context(post_context.chat_id, chat_context)
+                logger.info(f"Флаг модерации сброшен для чата {post_context.chat_id}")
+            
             # Отправляем уведомление об удалении
             await context.bot.send_message(
                 chat_id=post_context.chat_id,
                 text=f"✅ Пост успешно удален"
             )
+            
+            logger.info("=== Завершение обработки callback-запроса на удаление ===")
         except Exception as e:
             logger.error(f"Ошибка при удалении поста: {e}", exc_info=True)
             await context.bot.send_message(
@@ -1175,15 +1232,27 @@ class Bot:
                         )
                         return
             
+            # Получаем или создаем контекст чата
+            chat_context = self.state_manager.get_chat_context(post_context.chat_id)
+            if not chat_context:
+                logger.info(f"Создаем новый контекст чата для {post_context.chat_id}")
+                chat_context = ChatContext(post_context.chat_id)
+            
+            # Устанавливаем флаг модерации
+            logger.info(f"Устанавливаем флаг модерации для чата {post_context.chat_id}")
+            await chat_context.start_moderation()
+            self.state_manager.set_chat_context(post_context.chat_id, chat_context)
+            logger.info(f"Флаг модерации установлен: is_moderating={chat_context.is_moderating}")
+            
             # Обновляем сообщение с клавиатурой
             try:
                 await query.message.edit_text(
                     text=f"Выберите действие для поста {post_id}:",
                     reply_markup=get_moderate_keyboard(post_id),
-                    read_timeout=20,
-                    write_timeout=15,
-                    connect_timeout=15,
-                    pool_timeout=15
+                    read_timeout=17,
+                    write_timeout=12,
+                    connect_timeout=12,
+                    pool_timeout=12
                 )
             except Exception as e:
                 logger.error(f"Ошибка при обновлении клавиатуры: {e}", exc_info=True)
@@ -1483,6 +1552,13 @@ class Bot:
             logger.info("Очистка контекста поста")
             self.state_manager.clear_post_context(post_id)
             
+            # Сбрасываем флаг модерации
+            chat_context = self.state_manager.get_chat_context(post_context.chat_id)
+            if chat_context:
+                await chat_context.end_moderation()
+                self.state_manager.set_chat_context(post_context.chat_id, chat_context)
+                logger.info(f"Флаг модерации сброшен для чата {post_context.chat_id}")
+            
             # Отправляем уведомление об удалении
             logger.info("Отправка уведомления об удалении")
             await context.bot.send_message(
@@ -1515,6 +1591,15 @@ class Bot:
                     text="❌ Не удалось определить ID поста"
                 )
                 return
+            
+            # Получаем контекст чата
+            chat_context = self.state_manager.get_chat_context(settings.MODERATOR_GROUP_ID)
+            if chat_context:
+                # Сбрасываем флаг модерации
+                await chat_context.end_moderation()
+                self.state_manager.set_chat_context(settings.MODERATOR_GROUP_ID, chat_context)
+                logger.info(f"Флаг модерации сброшен для чата {settings.MODERATOR_GROUP_ID}")
+                
             if await self.publish_post(post_id, context):
                 try:
                     await query.message.delete()
@@ -1574,10 +1659,10 @@ class Bot:
         msg = await query.message.edit_text(
             text="Выберите, что хотите отредактировать:",
             reply_markup=get_edit_keyboard(post_id),
-            read_timeout=20,
-            write_timeout=15,
-            connect_timeout=15,
-            pool_timeout=15
+            read_timeout=17,
+            write_timeout=12,
+            connect_timeout=12,
+            pool_timeout=12
         )
         
         # Сохраняем ID сообщения с клавиатурой в service_messages
@@ -1730,8 +1815,8 @@ class Bot:
             current_time = time.time()
             if chat_id in self.last_request_time:
                 time_since_last = current_time - self.last_request_time[chat_id]
-                if time_since_last < 1:  # Минимальная задержка 1 секунда
-                    await asyncio.sleep(1 - time_since_last)
+                if time_since_last < 0.5:  # Минимальная задержка 0.5 секунды
+                    await asyncio.sleep(0.5 - time_since_last)
             
             # Отправляем сообщение
             message = await context.bot.send_message(
@@ -1759,8 +1844,8 @@ class Bot:
             current_time = time.time()
             if chat_id in self.last_request_time:
                 time_since_last = current_time - self.last_request_time[chat_id]
-                if time_since_last < 1:  # Минимальная задержка 1 секунда
-                    await asyncio.sleep(1 - time_since_last)
+                if time_since_last < 0.5:  # Минимальная задержка 0.5 секунды
+                    await asyncio.sleep(0.5 - time_since_last)
             
             logger.info(f"Попытка удаления сообщения {message_id} в чате {chat_id}")
             logger.info(f"Текущее время последнего запроса: {self.last_request_time.get(chat_id, 'нет')}")
@@ -1792,8 +1877,8 @@ class Bot:
             current_time = time.time()
             if chat_id in self.last_request_time:
                 time_since_last = current_time - self.last_request_time[chat_id]
-                if time_since_last < 1:  # Минимальная задержка 1 секунда
-                    await asyncio.sleep(1 - time_since_last)
+                if time_since_last < 0.5:  # Минимальная задержка 0.5 секунды
+                    await asyncio.sleep(0.5 - time_since_last)
             
             # Отправляем медиа-группу
             messages = await context.bot.send_media_group(
