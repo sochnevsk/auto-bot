@@ -20,8 +20,8 @@ import uuid
 
 load_dotenv()
 
-API_ID = int(os.getenv('API_ID', '26521480'))
-API_HASH = os.getenv('API_HASH', '858b8e9363acd79e1122748c621c08e1')
+API_ID = int(os.getenv('API_ID', '29323089'))
+API_HASH = os.getenv('API_HASH', '125701b6757856d6621370f9300f9acc')
 SESSION = os.getenv('SESSION', 'anon')
 SAVED_DIR = os.getenv('SAVE_DIR', os.path.join(os.getcwd(), 'saved'))
 
