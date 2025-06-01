@@ -4,17 +4,50 @@ __pycache__/
 *$py.class
 *.so
 .Python
-venv*/
-.env
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+venv_userbot/
+ENV/
+env/
+
 
 # Logs
 *.log
+logs/
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
+# Local development settings
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Project specific
+auto-bot-producer/saved_posts/
+auto-bot-producer/storage.json
+auto-bot-userbot/sessions/
+auto-bot-userbot/downloads/
+
+# Telegram session files
+*.session
+
+# Cache
+cache/
 
 # OS
 .DS_Store
@@ -27,10 +60,7 @@ Thumbs.db
 
 # Project specific
 anon.session
-cache/
-storage.json
 saved/
-*.session
 *.session-journal
 
 # Project specific

@@ -880,17 +880,18 @@ class Bot:
                         logger.info(f"[check_posts] Пост {post_id} уже есть в pending_posts")
                 
                 # Добавляем новые посты в множество ожидающих
+                old_count = len(chat_context.pending_posts)
                 chat_context.pending_posts.update(pending_posts)
+                new_count = len(chat_context.pending_posts)
                 logger.info(f"[check_posts] Обновлен список pending_posts: {chat_context.pending_posts}")
                 
-                # Отправляем сообщение только если есть новые посты
-                if pending_posts:
-                    total_pending = len(chat_context.pending_posts)
-                    logger.info(f"[check_posts] Отправка уведомления о {len(pending_posts)} новых ожидающих постах (всего в очереди: {total_pending})")
+                # Отправляем сообщение только если количество изменилось
+                if new_count != old_count:
+                    logger.info(f"[check_posts] Отправка уведомления о {new_count} ожидающих постах")
                     await self._safe_send_message(
                         context=context,
                         chat_id=settings.MODERATOR_GROUP_ID,
-                        text=f"⏳ Ожидаются новые предложения после модерации ({total_pending})"
+                        text=f"⏳ Ожидаются новые предложения после модерации ({new_count})"
                     )
                 return
 

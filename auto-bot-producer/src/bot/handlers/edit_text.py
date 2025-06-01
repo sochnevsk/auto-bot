@@ -112,8 +112,8 @@ async def handle_edit_text_message(
                 
     messages = await context.bot.send_media_group(
         chat_id=post_context.chat_id,
-        media=media_group,
-        parse_mode='HTML'
+        media=media_group
+        #parse_mode='HTML'
     )
     logger.info("Новый пост успешно отправлен")
     

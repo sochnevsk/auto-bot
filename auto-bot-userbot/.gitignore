@@ -22,7 +22,7 @@ wheels/
 
 # Virtual Environment
 venv/
-venv_producer/
+venv_userbot/
 ENV/
 env/
 .env
@@ -44,14 +44,7 @@ logs/
 .env.production.local
 
 # Project specific
-saved_posts/
-storage.json
-
-node_modules/
-bot.log
-session.txt
-.env
-__pycache__/
-*.pyc
-.DS_Store
-sent_posts_cache.json
+sessions/
+downloads/
+cache/
+*.session 
