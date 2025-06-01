@@ -1158,11 +1158,16 @@ class Bot:
                 logger.info(f"Флаг модерации сброшен для чата {post_context.chat_id}")
             
             # Отправляем уведомление об удалении
-            await context.bot.send_message(
+            result_message = await context.bot.send_message(
                 chat_id=post_context.chat_id,
                 text=f"✅ Пост успешно удален"
             )
-            
+            import asyncio
+            await asyncio.sleep(2)
+            try:
+                await result_message.delete()
+            except Exception as e:
+                logger.warning(f"Не удалось удалить сообщение об удалении: {e}")
             logger.info("=== Завершение обработки callback-запроса на удаление ===")
         except Exception as e:
             logger.error(f"Ошибка при удалении поста: {e}", exc_info=True)
@@ -1562,10 +1567,10 @@ class Bot:
             
             # Отправляем уведомление об удалении
             logger.info("Отправка уведомления об удалении")
-            await context.bot.send_message(
-                chat_id=post_context.chat_id,
-                text=f"✅ Пост успешно опубликован в каналах"
-            )
+            #await context.bot.send_message(
+            #    chat_id=post_context.chat_id,
+            #    text=f"✅ Пост успешно опубликован в каналах"
+            #)
             
             logger.info("=== Завершение обработки callback-запроса на удаление ===")
 
@@ -1609,6 +1614,17 @@ class Bot:
                 # Вместо служебного сообщения вызываем новый метод автозачистки
                 await self._delete_post_and_messages_by_id(post_id, context, query.message)
                 logger.info(f"Пост {post_id} удалён после публикации (автоматически)")
+                # Уведомление о публикации
+                result_message = await context.bot.send_message(
+                    chat_id=settings.MODERATOR_GROUP_ID,
+                    text="✅ Пост успешно опубликован в оба канала"
+                )
+                import asyncio
+                await asyncio.sleep(2)
+                try:
+                    await result_message.delete()
+                except Exception as e:
+                    logger.warning(f"Не удалось удалить сообщение о публикации: {e}")
             else:
                 await context.bot.send_message(
                     chat_id=query.message.chat_id,
