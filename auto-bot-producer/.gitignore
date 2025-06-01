@@ -25,7 +25,7 @@ venv/
 venv_producer/
 ENV/
 env/
-.env
+# .env  # Закомментировано, чтобы сохранять .env в git
 
 # IDE
 .idea/
@@ -38,10 +38,10 @@ env/
 logs/
 
 # Local development settings
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+# .env.local  # Закомментировано
+# .env.development.local  # Закомментировано
+# .env.test.local  # Закомментировано
+# .env.production.local  # Закомментировано
 
 # Project specific
 saved_posts/
@@ -50,7 +50,7 @@ storage.json
 node_modules/
 bot.log
 session.txt
-.env
+# .env  # Закомментировано
 __pycache__/
 *.pyc
 .DS_Store
