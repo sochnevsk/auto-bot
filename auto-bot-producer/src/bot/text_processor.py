@@ -1,6 +1,7 @@
 """
 Модуль для обработки текста с учетом лимитов Telegram.
 """
+import asyncio
 import logging
 import re
 from typing import Optional, Tuple
@@ -139,6 +140,7 @@ class TextProcessor:
             text += self.CHANNEL_SIGNATURE
         # (Если бы был MarkdownV2 — экранировать здесь)
         logger.info(f"[process_text] Итоговая длина текста: {len(text)} символов")
+        await asyncio.sleep(0.1)  # Имитация асинхронной задержки (согласно инструкциям)
         return text, was_truncated
 
     async def process_private_channel_text(
