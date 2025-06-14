@@ -171,8 +171,8 @@ def save_ready_flag(post_dir):
     Args:
         post_dir (str): Путь к папке поста
     """
-    with open(os.path.join(post_dir, 'ready.txt'), 'w') as f:
-        f.write('ok')
+    with open(os.path.join(post_dir, 'gpt.txt'), 'w') as f:
+        f.write('gpt')
 
 
 # --- Сохранение медиа из каналов ---

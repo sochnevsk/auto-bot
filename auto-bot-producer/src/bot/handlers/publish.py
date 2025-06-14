@@ -5,6 +5,7 @@ import os
 import logging
 from telegram import Update, InputMediaPhoto
 from telegram.ext import ContextTypes
+import asyncio
 
 from ..states import BotState, PostContext
 from ..text_processor import TextProcessor
@@ -182,6 +183,11 @@ async def handle_publish_callback(
     logger.info(f"Контекст поста {post_id} удален")
     
     # Отправляем сообщение об успешной публикации
-    await update.message.reply_text("✅ Пост успешно опубликован в оба канала")
+    result_message = await update.message.reply_text("✅ Пост успешно опубликован в оба канала")
+    await asyncio.sleep(2)
+    try:
+        await result_message.delete()
+    except Exception as e:
+        logger.warning(f"Не удалось удалить сообщение о публикации: {e}")
     
     logger.info(f"=== handle_publish_callback: завершено для поста {post_id} ===") 
